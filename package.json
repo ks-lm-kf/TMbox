@@ -1,0 +1,20 @@
+{
+  "name": "tmbox",
+  "version": "1.0.0",
+  "description": "TMbox - 偷摸箱 | Raspberry Pi/Linux Security Operations Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["security", "pentest", "metasploit", "dashboard", "raspberry-pi"],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "os-utils": "^0.0.14",
+    "socket.io": "^4.8.3"
+  }
+}

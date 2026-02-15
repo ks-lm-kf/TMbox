@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMbox - 树莓派攻防控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .terminal-font { font-family: 'Consolas', 'Courier New', monospace; }
+        /* 霓虹灯效果 */
+        .neon-border { box-shadow: 0 0 10px #3b82f6; }
+        /* 滚动条样式 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4 overflow-hidden">
+
+    <!-- 顶部状态栏 -->
+    <header class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+        <h1 class="text-2xl font-bold text-blue-500 tracking-widest">CYBER<span class="text-white">PANEL</span>_PI</h1>
+        <div class="flex space-x-3">
+            <!-- CPU 状态显示 -->
+            <div class="flex items-center space-x-2 px-3 py-1 bg-slate-800 rounded border border-slate-600">
+                <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-xs text-slate-300">CPU: <span id="cpuVal" class="font-bold text-white">Loading...</span>%</span>
+            </div>
+            <span class="px-3 py-1 bg-blue-900 text-blue-300 rounded text-xs border border-blue-700">NET: HOST</span>
+        </div>
+    </header>
+
+    <div class="flex flex-1 gap-4 overflow-hidden">
+        
+        <!-- 左侧：控制面板 (可滚动) -->
+        <div class="w-1/3 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
+            
+            <!-- Nuclei 控制卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden shrink-0">
+                <!-- Header -->
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('nuclei-body', 'nuclei-icon')">
+                    <div class="flex items-center gap-2">
+                        <span id="nuclei-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-yellow-400 font-mono">漏洞扫描器 (Nuclei)</h2>
+                    </div>
+                    <span id="scanBadge" class="hidden px-2 py-0.5 bg-green-600 text-white text-xs rounded animate-pulse">RUNNING</span>
+                </div>
+                
+                <!-- Body -->
+                <div id="nuclei-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="space-y-3 mt-3">
+                        <input type="text" id="targetInput" placeholder="目标 (可选, 例: http://192.168.1.1)" 
+                               class="w-full bg-slate-900 text-green-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+                        
+                        <input type="text" id="argsInput" placeholder="自定义参数 (例: -t cves/ -rl 50 -debug)" 
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <div class="flex gap-2">
+                            <button id="btnStart" onclick="startNuclei()" 
+                                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                执行命令
+                            </button>
+                            
+                            <button id="btnPing" onclick="startPing()" 
+                                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                Ping
+                            </button>
+
+                            <button id="btnStop" onclick="stopNuclei()" disabled
+                                    class="w-24 bg-red-900 text-slate-400 font-bold py-2 px-4 rounded transition text-sm cursor-not-allowed border border-red-800">
+                                停止
+                            </button>
+                        </div>
+                        
+                        <!-- Nuclei 帮助文档 (折叠) -->
+                        <div class="mt-4 border-t border-slate-700 pt-2">
+                             <div class="cursor-pointer flex items-center gap-2 text-slate-400 hover:text-white transition text-xs" onclick="toggleCard('nuclei-help-body', 'nuclei-help-icon')">
+                                <span id="nuclei-help-icon" class="transition-transform duration-200 -rotate-90">▼</span>
+                                <span>完整命令速查 (Full Help)</span>
+                             </div>
+                             <div id="nuclei-help-body" class="hidden mt-2 p-2 bg-slate-900 rounded border border-slate-700 text-xs text-slate-400 font-mono h-96 overflow-y-auto">
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[目标 Target]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-u, -target</td><td>指定单个目标 URL/主机</td></tr>
+                                         <tr><td class="text-green-400">-l, -list</td><td>从文件加载目标列表 (一行一个)</td></tr>
+                                         <tr><td class="text-green-400">-resume</td><td>恢复之前的扫描 (指定恢复文件)</td></tr>
+                                         <tr><td class="text-green-400">-sa</td><td>扫描所有关联的 DNS IP</td></tr>
+                                         <tr><td class="text-green-400">-iv</td><td>指定 IP 版本 (4 或 6)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[模板 Templates]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-t, -templates</td><td>指定模板或目录 (如 cves/, files/git-core.yaml)</td></tr>
+                                         <tr><td class="text-green-400">-nt</td><td>仅运行最新发布的模板</td></tr>
+                                         <tr><td class="text-green-400">-w, -workflows</td><td>运行工作流</td></tr>
+                                         <tr><td class="text-green-400">-as</td><td>自动扫描 (基于 Wappalyzer 技术识别自动选择模板)</td></tr>
+                                         <tr><td class="text-green-400">-validate</td><td>验证模板语法是否正确</td></tr>
+                                         <tr><td class="text-green-400">-tl</td><td>列出所有匹配当前过滤条件的模板</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[过滤 Filtering]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-tags</td><td>按标签包含 (例: cve,xss,jira)</td></tr>
+                                         <tr><td class="text-green-400">-etags</td><td>按标签排除</td></tr>
+                                         <tr><td class="text-green-400">-s, -severity</td><td>按严重性包含 (info,low,medium,high,critical)</td></tr>
+                                         <tr><td class="text-green-400">-es</td><td>按严重性排除</td></tr>
+                                         <tr><td class="text-green-400">-pt, -type</td><td>按协议类型 (http, dns, tcp, file, ...)</td></tr>
+                                         <tr><td class="text-green-400">-a, -author</td><td>按作者执行</td></tr>
+                                         <tr><td class="text-green-400">-id</td><td>按模板 ID 执行 (支持通配符)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[输出 Output]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-o, -output</td><td>结果输出到文件</td></tr>
+                                         <tr><td class="text-green-400">-j, -jsonl</td><td>以 JSONL 格式输出</td></tr>
+                                         <tr><td class="text-green-400">-nc, -no-color</td><td>禁用颜色 (脚本处理推荐)</td></tr>
+                                         <tr><td class="text-green-400">-silent</td><td>静默模式 (仅显示结果，无进度条)</td></tr>
+                                         <tr><td class="text-green-400">-v, -verbose</td><td>显示详细信息 (请求/响应)</td></tr>
+                                         <tr><td class="text-green-400">-debug</td><td>调试模式 (显示所有请求响应流量)</td></tr>
+                                         <tr><td class="text-green-400">-me</td><td>导出为 Markdown 报告</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[配置 Config]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-config</td><td>指定配置文件路径</td></tr>
+                                         <tr><td class="text-green-400">-fr</td><td>跟随 HTTP 重定向</td></tr>
+                                         <tr><td class="text-green-400">-mr</td><td>最大重定向次数 (默认 10)</td></tr>
+                                         <tr><td class="text-green-400">-H, -header</td><td>添加自定义 Header (key:value)</td></tr>
+                                         <tr><td class="text-green-400">-p, -proxy</td><td>使用代理 (http/socks5)</td></tr>
+                                         <tr><td class="text-green-400">-si, -stats-interval</td><td>统计信息显示间隔 (秒)</td></tr>
+                                         <tr><td class="text-green-400">-stats</td><td>显示扫描统计信息</td></tr>
+                                     </table>
+                                 </div>
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[速率 Rate-Limit]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-rl</td><td>每秒最大请求数 (默认 150)</td></tr>
+                                         <tr><td class="text-green-400">-rlm</td><td>每分钟最大请求数</td></tr>
+                                         <tr><td class="text-green-400">-c</td><td>模板并发数 (默认 25)</td></tr>
+                                         <tr><td class="text-green-400">-bs</td><td>每个模板的批量主机数 (默认 25)</td></tr>
+                                         <tr><td class="text-green-400">-timeout</td><td>超时时间 (秒, 默认 10)</td></tr>
+                                         <tr><td class="text-green-400">-retries</td><td>重试次数 (默认 1)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[更新 Update]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-up, -update</td><td>更新 Nuclei 引擎到最新版</td></tr>
+                                         <tr><td class="text-green-400">-ut</td><td>更新模板库 (Nuclei Templates)</td></tr>
+                                         <tr><td class="text-green-400">-ud</td><td>指定模板安装/更新目录</td></tr>
+                                         <tr><td class="text-green-400">-duc</td><td>禁用自动更新检查</td></tr>
+                                     </table>
+                                 </div>
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-yellow-500 font-bold border-b border-slate-700 mb-1">[其他 Others]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-ni, -no-interactsh</td><td>禁用 Interactsh (OAST) 功能</td></tr>
+                                         <tr><td class="text-green-400">-iserver</td><td>指定自建的 Interactsh 服务器</td></tr>
+                                         <tr><td class="text-green-400">-headless</td><td>启用无头浏览器模式 (需安装 Chrome)</td></tr>
+                                         <tr><td class="text-green-400">-health-check</td><td>运行健康检查</td></tr>
+                                     </table>
+                                 </div>
+
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nmap 控制卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('nmap-body', 'nmap-icon')">
+                    <div class="flex items-center gap-2">
+                        <span id="nmap-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-indigo-400 font-mono">端口扫描器 (Nmap)</h2>
+                    </div>
+                    <span id="nmapBadge" class="hidden px-2 py-0.5 bg-indigo-600 text-white text-xs rounded animate-pulse">RUNNING</span>
+                </div>
+                
+                <div id="nmap-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="space-y-3 mt-3">
+                        <input type="text" id="nmapTargetInput" placeholder="目标 IP/域名 (例: 192.168.1.1)" 
+                               class="w-full bg-slate-900 text-indigo-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+                        
+                        <input type="text" id="nmapArgsInput" placeholder="自定义参数 (例: -sV -p 1-1000)" 
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <div class="flex gap-2">
+                            <button id="btnNmapStart" onclick="startNmap()" 
+                                    class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                启动 Nmap 扫描
+                            </button>
+                             <button id="btnNmapStop" onclick="stopTask('nmap')" disabled
+                                    class="w-24 bg-red-900 text-slate-400 font-bold py-2 px-4 rounded transition text-sm cursor-not-allowed border border-red-800">
+                                停止
+                            </button>
+                        </div>
+                        
+                        <!-- 拓扑图按钮 -->
+                        <div class="mt-2">
+                            <button onclick="window.location.href='/topology'" 
+                                    class="w-full bg-slate-700 hover:bg-slate-600 text-indigo-300 font-bold py-2 px-4 rounded transition text-xs border border-slate-600 flex items-center justify-center gap-2">
+                                <span>🕸️</span>
+                                <span>查看网络拓扑图 (View Topology)</span>
+                            </button>
+                        </div>
+
+                        <!-- Nmap 帮助文档 (折叠) -->
+                        <div class="mt-4 border-t border-slate-700 pt-2">
+                             <div class="cursor-pointer flex items-center gap-2 text-slate-400 hover:text-white transition text-xs" onclick="toggleCard('nmap-help-body', 'nmap-help-icon')">
+                                <span id="nmap-help-icon" class="transition-transform duration-200 -rotate-90">▼</span>
+                                <span>完整命令速查 (Full Help)</span>
+                             </div>
+                             <div id="nmap-help-body" class="hidden mt-2 p-2 bg-slate-900 rounded border border-slate-700 text-xs text-slate-400 font-mono h-96 overflow-y-auto">
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[目标 Target]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">IP/域名</td><td>直接输入 (例: 192.168.1.1, scanme.nmap.org)</td></tr>
+                                         <tr><td class="text-green-400">CIDR</td><td>网段扫描 (例: 192.168.1.0/24)</td></tr>
+                                         <tr><td class="text-green-400">-iL &lt;file&gt;</td><td>从文件导入目标列表</td></tr>
+                                         <tr><td class="text-green-400">-iR &lt;num&gt;</td><td>随机选择 &lt;num&gt; 个目标</td></tr>
+                                         <tr><td class="text-green-400">--exclude</td><td>排除目标 (例: --exclude 192.168.1.5)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[主机发现 Host Discovery]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-sn</td><td>Ping 扫描 (不扫端口，只看存活)</td></tr>
+                                         <tr><td class="text-green-400">-Pn</td><td>跳过 Ping (假设所有目标在线，强制扫描)</td></tr>
+                                         <tr><td class="text-green-400">-PS/PA/PU</td><td>使用 TCP SYN/ACK 或 UDP 包探测</td></tr>
+                                         <tr><td class="text-green-400">-n / -R</td><td>不解析 DNS / 总是解析 DNS</td></tr>
+                                         <tr><td class="text-green-400">--traceroute</td><td>探测路由路径</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[扫描技术 Scan Techniques]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-sS</td><td>TCP SYN 扫描 (半开放，需 Root，最常用/隐蔽)</td></tr>
+                                         <tr><td class="text-green-400">-sT</td><td>TCP Connect 扫描 (全连接，无需 Root)</td></tr>
+                                         <tr><td class="text-green-400">-sU</td><td>UDP 扫描 (慢，探测 UDP 服务)</td></tr>
+                                         <tr><td class="text-green-400">-sA</td><td>ACK 扫描 (用于探测防火墙规则)</td></tr>
+                                         <tr><td class="text-green-400">-sI &lt;zombie&gt;</td><td>Idle 扫描 (利用僵尸主机进行隐蔽扫描)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[端口与服务 Port/Service]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-p &lt;ports&gt;</td><td>指定端口 (例: -p 80,443 或 -p 1-65535)</td></tr>
+                                         <tr><td class="text-green-400">-F</td><td>快速扫描 (仅前 100 个常用端口)</td></tr>
+                                         <tr><td class="text-green-400">-r</td><td>顺序扫描端口 (默认随机)</td></tr>
+                                         <tr><td class="text-green-400">-sV</td><td>探测服务/版本信息</td></tr>
+                                         <tr><td class="text-green-400">--version-light</td><td>轻量级版本探测 (速度快)</td></tr>
+                                         <tr><td class="text-green-400">--version-all</td><td>尝试所有探针 (最精确但慢)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[系统与脚本 OS/Script]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-O</td><td>启用操作系统探测 (需 Root)</td></tr>
+                                         <tr><td class="text-green-400">--osscan-guess</td><td>更激进地猜测 OS</td></tr>
+                                         <tr><td class="text-green-400">-sC</td><td>使用默认脚本集 (等同 --script=default)</td></tr>
+                                         <tr><td class="text-green-400">--script</td><td>指定脚本 (例: --script=vuln,auth)</td></tr>
+                                         <tr><td class="text-green-400">--script-args</td><td>传递参数给脚本</td></tr>
+                                         <tr><td class="text-green-400">-A</td><td>综合扫描 (OS + 版本 + 脚本 + 路由)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[性能 Timing]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-T&lt;0-5&gt;</td><td>速度模板 (T4 推荐，T5 极速易丢包)</td></tr>
+                                         <tr><td class="text-green-400">--min-rate</td><td>最小发包速率 (例: --min-rate 1000)</td></tr>
+                                         <tr><td class="text-green-400">--max-retries</td><td>最大重试次数 (减少可加速)</td></tr>
+                                         <tr><td class="text-green-400">--host-timeout</td><td>单主机超时放弃时间</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[防火墙规避 Firewall]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-f</td><td>报文分片 (Fragment)</td></tr>
+                                         <tr><td class="text-green-400">-D</td><td>使用诱饵 IP (Decoy, 例: -D 1.1.1.1,ME)</td></tr>
+                                         <tr><td class="text-green-400">-S</td><td>伪造源 IP 地址</td></tr>
+                                         <tr><td class="text-green-400">-g / --source-port</td><td>指定源端口 (例: -g 53 绕过防火墙)</td></tr>
+                                         <tr><td class="text-green-400">--proxies</td><td>使用 HTTP/SOCKS4 代理</td></tr>
+                                         <tr><td class="text-green-400">--spoof-mac</td><td>伪造 MAC 地址</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[输出 Output]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-oN</td><td>标准格式保存到文件</td></tr>
+                                         <tr><td class="text-green-400">-oX</td><td>XML 格式保存 (便于程序解析)</td></tr>
+                                         <tr><td class="text-green-400">-oG</td><td>Grepable 格式 (便于 grep)</td></tr>
+                                         <tr><td class="text-green-400">-oA</td><td>同时保存三种格式 (N, X, G)</td></tr>
+                                         <tr><td class="text-green-400">-v</td><td>增加输出详细程度 (-vv 更详细)</td></tr>
+                                         <tr><td class="text-green-400">--open</td><td>仅显示开放的端口</td></tr>
+                                         <tr><td class="text-green-400">--reason</td><td>显示端口处于该状态的原因</td></tr>
+                                     </table>
+                                 </div>
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-indigo-400 font-bold border-b border-slate-700 mb-1">[其他 Misc]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-6</td><td>启用 IPv6 扫描</td></tr>
+                                         <tr><td class="text-green-400">--privileged</td><td>强制假设有完整权限</td></tr>
+                                         <tr><td class="text-green-400">-V</td><td>显示版本信息</td></tr>
+                                         <tr><td class="text-green-400">-h</td><td>显示帮助</td></tr>
+                                     </table>
+                                 </div>
+
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fscan 控制卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('fscan-body', 'fscan-icon')">
+                    <div class="flex items-center gap-2">
+                        <span id="fscan-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-red-400 font-mono">内网漏扫 (Fscan)</h2>
+                    </div>
+                    <span id="fscanBadge" class="hidden px-2 py-0.5 bg-red-600 text-white text-xs rounded animate-pulse">RUNNING</span>
+                </div>
+                
+                <div id="fscan-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="space-y-3 mt-3">
+                        <input type="text" id="fscanTargetInput" placeholder="目标 IP/CIDR (例: 192.168.1.1/24)" 
+                               class="w-full bg-slate-900 text-red-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+                        
+                        <input type="text" id="fscanArgsInput" placeholder="自定义参数 (例: -nopoc -t 600)" 
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <div class="flex gap-2">
+                            <button id="btnFscanStart" onclick="startFscan()" 
+                                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                启动 Fscan 扫描
+                            </button>
+                            <button id="btnFscanStop" onclick="stopTask('fscan')" disabled
+                                    class="w-24 bg-red-900 text-slate-400 font-bold py-2 px-4 rounded transition text-sm cursor-not-allowed border border-red-800">
+                                停止
+                            </button>
+                        </div>
+
+                        <!-- Fscan 帮助文档 (折叠) -->
+                        <div class="mt-4 border-t border-slate-700 pt-2">
+                             <div class="cursor-pointer flex items-center gap-2 text-slate-400 hover:text-white transition text-xs" onclick="toggleCard('fscan-help-body', 'fscan-help-icon')">
+                                <span id="fscan-help-icon" class="transition-transform duration-200 -rotate-90">▼</span>
+                                <span>完整命令速查 (Full Help)</span>
+                             </div>
+                             <div id="fscan-help-body" class="hidden mt-2 p-2 bg-slate-900 rounded border border-slate-700 text-xs text-slate-400 font-mono h-64 overflow-y-auto">
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[核心与目标 Core/Target]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-h</td><td>目标 IP (192.168.1.1/24, 1.1.1.1-255)</td></tr>
+                                         <tr><td class="text-green-400">-hf &lt;file&gt;</td><td>从文件读取目标列表</td></tr>
+                                         <tr><td class="text-green-400">-hn</td><td>排除特定 IP (不扫描)</td></tr>
+                                         <tr><td class="text-green-400">-u / -uf</td><td>指定 URL / URL 文件</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[端口配置 Port]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-p</td><td>指定端口 (22,80, 1-65535)</td></tr>
+                                         <tr><td class="text-green-400">-pa</td><td>在默认端口基础上追加端口</td></tr>
+                                         <tr><td class="text-green-400">-pn</td><td>排除特定端口 (不扫描)</td></tr>
+                                         <tr><td class="text-green-400">-portf</td><td>从文件读取端口列表</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[扫描模式 Mode]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-m</td><td>指定模式 (ssh, poc, mssql, redis, all...)</td></tr>
+                                         <tr><td class="text-green-400">-np</td><td>跳过 Ping 存活探测</td></tr>
+                                         <tr><td class="text-green-400">-ping</td><td>使用 Ping 代替 ICMP</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[漏洞探测 POC]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-nopoc</td><td>跳过 Web 漏洞扫描</td></tr>
+                                         <tr><td class="text-green-400">-pocname</td><td>指定特定 POC (如 weblogic)</td></tr>
+                                         <tr><td class="text-green-400">-pocpath</td><td>加载自定义 POC 文件路径</td></tr>
+                                         <tr><td class="text-green-400">-full</td><td>完整 POC 扫描 (如 Shiro 100 Key)</td></tr>
+                                         <tr><td class="text-green-400">-dns</td><td>使用 DNSLog 验证漏洞</td></tr>
+                                         <tr><td class="text-green-400">-cookie</td><td>设置扫描时的 Cookie</td></tr>
+                                         <tr><td class="text-green-400">-proxy</td><td>设置 HTTP 代理</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[暴力破解 Brute]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-nobr</td><td>跳过弱口令爆破</td></tr>
+                                         <tr><td class="text-green-400">-br</td><td>爆破线程数 (默认 1)</td></tr>
+                                         <tr><td class="text-green-400">-user / -pwd</td><td>指定特定用户名/密码</td></tr>
+                                         <tr><td class="text-green-400">-userf / -pwdf</td><td>指定用户名/密码字典文件</td></tr>
+                                         <tr><td class="text-green-400">-usera / -pwda</td><td>追加用户名/密码到默认字典</td></tr>
+                                         <tr><td class="text-green-400">-sshkey</td><td>指定 SSH 私钥文件</td></tr>
+                                         <tr><td class="text-green-400">-domain</td><td>指定 SMB 域名</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[配置与输出 Config]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-o</td><td>指定输出文件 (默认 result.txt)</td></tr>
+                                         <tr><td class="text-green-400">-no</td><td>不保存文件 (仅屏幕输出)</td></tr>
+                                         <tr><td class="text-green-400">-json</td><td>JSON 格式输出</td></tr>
+                                         <tr><td class="text-green-400">-t</td><td>扫描线程数 (默认 600)</td></tr>
+                                         <tr><td class="text-green-400">-time</td><td>网络超时时间 (默认 3秒)</td></tr>
+                                         <tr><td class="text-green-400">-wt</td><td>Web 访问超时时间 (默认 5秒)</td></tr>
+                                         <tr><td class="text-green-400">-silent</td><td>静默模式 (减少输出)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-red-400 font-bold border-b border-slate-700 mb-1">[高级利用 Exploit]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-c</td><td>执行命令 (ssh|wmiexec)</td></tr>
+                                         <tr><td class="text-green-400">-rs</td><td>Redis 写 Shell (ip:port)</td></tr>
+                                         <tr><td class="text-green-400">-rf</td><td>Redis 写 SSH 公钥</td></tr>
+                                         <tr><td class="text-green-400">-sc</td><td>MS17-010 Shellcode (add user)</td></tr>
+                                         <tr><td class="text-green-400">-wmi</td><td>启用 WMI 利用</td></tr>
+                                     </table>
+                                 </div>
+
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feroxbuster 控制卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('feroxbuster-body', 'feroxbuster-icon')">
+                    <div class="flex items-center gap-2">
+                        <span id="feroxbuster-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-cyan-400 font-mono">目录爆破 (Feroxbuster)</h2>
+                    </div>
+                    <span id="feroxbusterBadge" class="hidden px-2 py-0.5 bg-cyan-600 text-white text-xs rounded animate-pulse">RUNNING</span>
+                </div>
+
+                <div id="feroxbuster-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="space-y-3 mt-3">
+                        <input type="text" id="feroxbusterTargetInput" placeholder="目标 URL (例: http://192.168.1.1)"
+                               class="w-full bg-slate-900 text-cyan-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <input type="text" id="feroxbusterArgsInput" placeholder="自定义参数 (例: -w /path/to/wordlist.txt -x php,html -t 50)"
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <div class="flex gap-2">
+                            <button id="btnFeroxbusterStart" onclick="startFeroxbuster()"
+                                    class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                启动 Feroxbuster 扫描
+                            </button>
+                             <button id="btnFeroxbusterStop" onclick="stopTask('feroxbuster')" disabled
+                                    class="w-24 bg-red-900 text-slate-400 font-bold py-2 px-4 rounded transition text-sm cursor-not-allowed border border-red-800">
+                                停止
+                            </button>
+                        </div>
+
+                        <!-- Feroxbuster 帮助文档 (折叠) -->
+                        <div class="mt-4 border-t border-slate-700 pt-2">
+                             <div class="cursor-pointer flex items-center gap-2 text-slate-400 hover:text-white transition text-xs" onclick="toggleCard('feroxbuster-help-body', 'feroxbuster-help-icon')">
+                                <span id="feroxbuster-help-icon" class="transition-transform duration-200 -rotate-90">▼</span>
+                                <span>完整命令速查 (Full Help)</span>
+                             </div>
+                             <div id="feroxbuster-help-body" class="hidden mt-2 p-2 bg-slate-900 rounded border border-slate-700 text-xs text-slate-400 font-mono h-64 overflow-y-auto">
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[目标 Target]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-u, --url</td><td>目标 URL (例: -u http://target.com)</td></tr>
+                                         <tr><td class="text-green-400">--url-scan</td><td>从文件读取 URL 列表</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[字典 Wordlist]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-w</td><td>指定字典文件 (例: -w /usr/share/wordlists/dirb/common.txt)</td></tr>
+                                         <tr><td class="text-green-400">-e, --extensions</td><td>文件扩展名 (例: -x php,asp,aspx,jsp)</td></tr>
+                                         <tr><td class="text-green-400">-n, --no-recursion</td><td>禁用递归扫描</td></tr>
+                                         <tr><td class="text-green-400">--depth</td><td>最大递归深度 (默认 4)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[性能 Performance]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-t, --threads</td><td>并发线程数 (默认 50)</td></tr>
+                                         <tr><td class="text-green-400">--timeout</td><td>请求超时时间 (秒, 默认 7)</td></tr>
+                                         <tr><td class="text-green-400">-r, --retries</td><td>重试次数 (默认 3)</td></tr>
+                                         <tr><td class="text-green-400">--rate-limit</td><td>限制每秒请求数</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[过滤 Filters]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-s, --status-codes</td><td>显示的状态码 (例: -s 200,301,302)</td></tr>
+                                         <tr><td class="text-green-400">-C, --filter-status</td><td>排除的状态码</td></tr>
+                                         <tr><td class="text-green-400">-S, --filter-size</td><td>排除指定响应大小</td></tr>
+                                         <tr><td class="text-green-400">-N, --filter-lines</td><td>排除指定行数</td></tr>
+                                         <tr><td class="text-green-400">--filter-regex</td><td>使用正则过滤响应内容</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[输出 Output]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-o, --output</td><td>保存结果到文件</td></tr>
+                                         <tr><td class="text-green-400">--json</td><td>以 JSON 格式输出</td></tr>
+                                         <tr><td class="text-green-400">-q, --quiet</td><td>静默模式 (仅显示结果)</td></tr>
+                                         <tr><td class="text-green-400">-v, --verbosity</td><td>增加详细程度 (-v, -vv)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-cyan-400 font-bold border-b border-slate-700 mb-1">[请求 Request]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-H, --headers</td><td>添加请求头 (例: -H "Cookie: session=xxx")</td></tr>
+                                         <tr><td class="text-green-400">-a, --user-agent</td><td>自定义 User-Agent</td></tr>
+                                         <tr><td class="text-green-400">-x, --proxy</td><td>使用代理 (例: -x http://127.0.0.1:8080)</td></tr>
+                                         <tr><td class="text-green-400">-k, --insecure</td><td>忽略 SSL 证书验证</td></tr>
+                                     </table>
+                                 </div>
+
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sqlmap 控制卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('sqlmap-body', 'sqlmap-icon')">
+                    <div class="flex items-center gap-2">
+                        <span id="sqlmap-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-orange-500 font-mono">SQL 注入检测 (Sqlmap)</h2>
+                    </div>
+                    <span id="sqlmapBadge" class="hidden px-2 py-0.5 bg-orange-600 text-white text-xs rounded animate-pulse">RUNNING</span>
+                </div>
+                
+                <div id="sqlmap-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="space-y-3 mt-3">
+                        <input type="text" id="sqlmapTargetInput" placeholder="目标 URL (例: http://testphp.vulnweb.com/artists.php?artist=1)" 
+                               class="w-full bg-slate-900 text-orange-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+                        
+                        <input type="text" id="sqlmapArgsInput" placeholder="自定义参数 (例: --dbs --batch --random-agent)" 
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 p-2 rounded focus:outline-none focus:border-blue-500 terminal-font text-sm">
+
+                        <div class="flex gap-2">
+                            <button id="btnSqlmapStart" onclick="startSqlmap()" 
+                                    class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded transition text-sm shadow-lg">
+                                启动 Sqlmap 扫描
+                            </button>
+                             <button id="btnSqlmapStop" onclick="stopTask('sqlmap')" disabled
+                                    class="w-24 bg-red-900 text-slate-400 font-bold py-2 px-4 rounded transition text-sm cursor-not-allowed border border-red-800">
+                                停止
+                            </button>
+                        </div>
+                        
+                        <!-- Sqlmap 帮助文档 (折叠) -->
+                        <div class="mt-4 border-t border-slate-700 pt-2">
+                             <div class="cursor-pointer flex items-center gap-2 text-slate-400 hover:text-white transition text-xs" onclick="toggleCard('sqlmap-help-body', 'sqlmap-help-icon')">
+                                <span id="sqlmap-help-icon" class="transition-transform duration-200 -rotate-90">▼</span>
+                                <span>完整命令速查 (Full Help)</span>
+                             </div>
+                             <div id="sqlmap-help-body" class="hidden mt-2 p-2 bg-slate-900 rounded border border-slate-700 text-xs text-slate-400 font-mono h-64 overflow-y-auto">
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[目标 Target]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-u, --url</td><td>指定目标 URL (例: -u "http://site.com/vuln.php?id=1")</td></tr>
+                                         <tr><td class="text-green-400">-g</td><td>使用 Google Dork 搜索结果作为目标</td></tr>
+                                         <tr><td class="text-green-400">-r</td><td>从 HTTP 请求文件加载目标 (需抓包保存)</td></tr>
+                                         <tr><td class="text-green-400">-m</td><td>从文本文件加载多个 URL 列表</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[请求 Request]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">--data</td><td>POST 数据 (例: "id=1&name=test")</td></tr>
+                                         <tr><td class="text-green-400">--cookie</td><td>设置 Cookie (例: "PHPSESSID=xxx")</td></tr>
+                                         <tr><td class="text-green-400">--random-agent</td><td>使用随机 User-Agent (防拦截)</td></tr>
+                                         <tr><td class="text-green-400">--proxy</td><td>使用代理 (例: "http://127.0.0.1:8080")</td></tr>
+                                         <tr><td class="text-green-400">--tor</td><td>使用 Tor 匿名网络</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[注入与检测 Injection]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-p</td><td>指定测试参数 (例: -p "id,user-agent")</td></tr>
+                                         <tr><td class="text-green-400">--dbms</td><td>强制指定后端数据库 (如 MySQL, PostgreSQL)</td></tr>
+                                         <tr><td class="text-green-400">--level &lt;1-5&gt;</td><td>检测等级 (默认1，3级测User-Agent，5级最全)</td></tr>
+                                         <tr><td class="text-green-400">--risk &lt;1-3&gt;</td><td>风险等级 (默认1，3级包含危险操作)</td></tr>
+                                         <tr><td class="text-green-400">--technique</td><td>指定技术 (B:布尔, E:报错, U:联合, S:堆叠, T:时间, Q:内联)</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[枚举 Enumeration]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">-a, --all</td><td>获取所有信息 (全家桶)</td></tr>
+                                         <tr><td class="text-green-400">-b, --banner</td><td>获取数据库版本信息</td></tr>
+                                         <tr><td class="text-green-400">--current-user</td><td>获取当前数据库用户</td></tr>
+                                         <tr><td class="text-green-400">--current-db</td><td>获取当前数据库名</td></tr>
+                                         <tr><td class="text-green-400">--passwords</td><td>枚举数据库用户密码哈希</td></tr>
+                                         <tr><td class="text-green-400">--dbs</td><td>列出所有数据库</td></tr>
+                                         <tr><td class="text-green-400">--tables</td><td>列出指定库的所有表 (需配合 -D)</td></tr>
+                                         <tr><td class="text-green-400">--columns</td><td>列出指定表的所有列 (需配合 -D -T)</td></tr>
+                                         <tr><td class="text-green-400">--dump</td><td>导出数据 (拖库)</td></tr>
+                                         <tr><td class="text-green-400">-D / -T / -C</td><td>指定 库 / 表 / 列</td></tr>
+                                     </table>
+                                 </div>
+
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[系统访问 OS Access]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">--os-shell</td><td>尝试获取交互式 Shell (系统命令行)</td></tr>
+                                         <tr><td class="text-green-400">--os-pwn</td><td>尝试获取 OOB Shell, Meterpreter 或 VNC</td></tr>
+                                     </table>
+                                 </div>
+                                 
+                                 <div class="mb-3">
+                                     <h3 class="text-orange-400 font-bold border-b border-slate-700 mb-1">[常规 General]</h3>
+                                     <table class="w-full text-left">
+                                         <tr><td class="w-1/3 text-green-400">--batch</td><td>非交互模式 (自动确认，脚本调用必备)</td></tr>
+                                         <tr><td class="text-green-400">--flush-session</td><td>清空当前目标的缓存文件</td></tr>
+                                         <tr><td class="text-green-400">--wizard</td><td>向导模式 (适合初学者)</td></tr>
+                                         <tr><td class="text-green-400">-v &lt;0-6&gt;</td><td>详细程度 (0:只显示Python回溯, 1:默认, 6:HTTP流量)</td></tr>
+                                     </table>
+                                 </div>
+                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MSF 控制卡片 (默认折叠) -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden opacity-90 shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('msf-body', 'msf-icon')">
+                     <div class="flex items-center gap-2">
+                        <span id="msf-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-red-500 font-mono">Metasploit Framework</h2>
+                    </div>
+                </div>
+                <div id="msf-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="mt-4">
+                        <button onclick="window.location.href='/msf'" 
+                                class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded transition text-sm shadow-lg flex items-center justify-center gap-2">
+                            <span>进入 MSF 完整控制台 (Enter MSF Console)</span>
+                        </button>
+                        <p class="text-xs text-slate-500 mt-2 text-center">
+                            * 点击将打开新的全屏终端页面，支持交互式操作
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        <!-- 右侧：日志终端 (多标签页) -->
+        <div class="w-2/3 bg-slate-900 rounded-lg shadow-2xl border border-slate-700 flex flex-col neon-border overflow-hidden relative">
+            
+            <!-- Tab 导航栏 -->
+            <div class="flex bg-slate-800 border-b border-slate-700">
+                <button onclick="switchTab('system')" id="tab-system" class="px-4 py-2 text-xs font-bold text-blue-400 bg-slate-900 border-r border-slate-700 hover:bg-slate-700 transition">System</button>
+                <button onclick="switchTab('nuclei')" id="tab-nuclei" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-yellow-400 border-r border-slate-700 hover:bg-slate-700 transition">Nuclei</button>
+                <button onclick="switchTab('nmap')" id="tab-nmap" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-indigo-400 border-r border-slate-700 hover:bg-slate-700 transition">Nmap</button>
+                <button onclick="switchTab('fscan')" id="tab-fscan" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-red-400 border-r border-slate-700 hover:bg-slate-700 transition">Fscan</button>
+                <button onclick="switchTab('feroxbuster')" id="tab-feroxbuster" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-cyan-400 border-r border-slate-700 hover:bg-slate-700 transition">Feroxbuster</button>
+                <button onclick="switchTab('sqlmap')" id="tab-sqlmap" class="px-4 py-2 text-xs font-bold text-slate-500 hover:text-orange-400 border-r border-slate-700 hover:bg-slate-700 transition">Sqlmap</button>
+                
+                <!-- 占位，右侧工具栏 -->
+                <div class="flex-1 flex justify-end items-center px-2">
+                    <button onclick="clearCurrentLog()" class="text-[10px] text-red-400 hover:text-white px-2 py-1 rounded border border-slate-600 hover:bg-red-900 transition">清空当前</button>
+                </div>
+            </div>
+
+            <!-- 终端内容区容器 -->
+            <div class="flex-1 relative overflow-hidden bg-black">
+                <!-- System Terminal -->
+                <div id="term-system" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-green-500"></div>
+                <!-- Nuclei Terminal -->
+                <div id="term-nuclei" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-yellow-100 hidden"></div>
+                <!-- Nmap Terminal -->
+                <div id="term-nmap" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-indigo-100 hidden"></div>
+                <!-- Fscan Terminal -->
+                <div id="term-fscan" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-red-100 hidden"></div>
+                <!-- Feroxbuster Terminal -->
+                <div id="term-feroxbuster" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-cyan-100 hidden"></div>
+                <!-- Sqlmap Terminal -->
+                <div id="term-sqlmap" class="absolute inset-0 overflow-y-auto p-4 terminal-font text-xs leading-relaxed whitespace-pre-wrap text-orange-100 hidden"></div>
+            </div>
+            
+            <!-- 底部输入框 -->
+            <div class="bg-slate-800 p-2 border-t border-slate-700 flex items-center gap-2">
+                <span class="text-green-500 font-bold text-sm">$</span>
+                <input type="text" id="termInput" class="flex-1 bg-transparent text-slate-200 text-xs font-mono outline-none placeholder-slate-600" 
+                       placeholder="在此输入交互指令 (如 Sqlmap 询问时)..." onkeydown="handleInput(event)" autocomplete="off">
+            </div>
+        </div>
+    </div>
+
+    <!-- 逻辑脚本 -->
+    <!-- 逻辑脚本 -->
+        <!-- 逻辑脚本 -->
+    <script>
+        // --- 修复3: 强制使用 websocket 模式，更稳定 ---
+        const socket = io({ 
+            transports: ['websocket'],
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
+
+        const cpuEl = document.getElementById('cpuVal');
+        
+        // Tab 管理
+        let activeTab = 'system';
+        const tabs = ['system', 'nuclei', 'nmap', 'fscan', 'feroxbuster', 'sqlmap'];
+
+        // 独立跟踪每个工具的运行状态
+        const runningStatus = {
+            'system': false,
+            'nuclei': false,
+            'nmap': false,
+            'fscan': false,
+            'feroxbuster': false,
+            'sqlmap': false
+        };
+
+        function switchTab(tabName) {
+            activeTab = tabName;
+            
+            // 1. 更新按钮样式
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-${t}`);
+                if (t === tabName) {
+                    btn.classList.remove('text-slate-500', 'bg-transparent');
+                    btn.classList.add('bg-slate-900', 'text-blue-400'); // Active style
+                    // 恢复特定颜色高亮
+                    if(t === 'nuclei') btn.classList.add('text-yellow-400');
+                    if(t === 'nmap') btn.classList.add('text-indigo-400');
+                    if(t === 'fscan') btn.classList.add('text-red-400');
+                    if(t === 'feroxbuster') btn.classList.add('text-cyan-400');
+                    if(t === 'sqlmap') btn.classList.add('text-orange-400');
+                } else {
+                    btn.classList.add('text-slate-500');
+                    btn.classList.remove('bg-slate-900', 'text-blue-400', 'text-yellow-400', 'text-indigo-400', 'text-red-400', 'text-cyan-400', 'text-orange-400');
+                }
+            });
+
+            // 2. 切换内容显示
+            tabs.forEach(t => {
+                const div = document.getElementById(`term-${t}`);
+                if (t === tabName) {
+                    div.classList.remove('hidden');
+                    // 自动滚动到底部
+                    div.scrollTop = div.scrollHeight;
+                } else {
+                    div.classList.add('hidden');
+                }
+            });
+            
+            // 聚焦输入框
+            document.getElementById('termInput').focus();
+        }
+
+        // 增加连接状态监控
+        socket.on('connect', () => {
+            logToTerm('system', `\n[CONN] 已连接到服务器 (ID: ${socket.id})\n`);
+        });
+
+        socket.on('disconnect', () => {
+             logToTerm('system', `\n[CONN] 连接断开! 正在重连...\n`);
+             cpuEl.innerText = "Offline";
+             cpuEl.style.color = "gray";
+        });
+
+        const sysEl = document.getElementById('cpuVal');
+        // 监听新的系统状态
+        socket.on('sys-update', (data) => {
+            // data 格式: { load: "0.15", mem: "30.5" }
+            sysEl.innerText = `Load: ${data.load} | Mem: ${data.mem}%`;
+            
+            // 如果负载超过 2.0 (树莓派通常是4核，超过2就很忙了)
+            if(parseFloat(data.load) > 2.0) {
+                sysEl.className = 'font-bold text-red-500';
+            } else {
+                sysEl.className = 'font-bold text-green-400';
+            }
+        });
+
+        // --- 核心日志处理 ---
+        socket.on('log', (msgObj) => {
+            // 兼容旧格式 (如果是字符串，默认 system)
+            let source = 'system';
+            let data = '';
+
+            if (typeof msgObj === 'string') {
+                data = msgObj;
+            } else {
+                source = msgObj.source || 'system';
+                data = msgObj.data;
+            }
+
+            logToTerm(source, data);
+        });
+
+        // 清理 ANSI 转义序列
+        function stripAnsi(str) {
+            return str.replace(/\x1b\[[0-9;]*m|\[\d+m/g, '');
+        }
+
+        function logToTerm(source, text) {
+            const termId = `term-${source}`;
+            const div = document.getElementById(termId);
+            if (div) {
+                // 清理 ANSI 颜色代码，显示纯文本
+                const cleanText = stripAnsi(text);
+                div.innerText += cleanText;
+                // 自动滚动到底部
+                div.scrollTop = div.scrollHeight;
+
+                // 如果收到日志的不是当前 Tab，给 Tab 按钮加闪烁效果
+                if (source !== activeTab) {
+                    const btn = document.getElementById(`tab-${source}`);
+                    if (btn) {
+                        btn.classList.add('animate-pulse');
+                        setTimeout(() => btn.classList.remove('animate-pulse'), 1000);
+                    }
+                }
+            }
+        }
+
+        socket.on('scan-status', (data) => {
+            // data 格式可能是字符串 (旧) 或 { type: 'nmap', status: 'running' } (新)
+            let type = 'nuclei'; // 默认
+            let status = 'stopped';
+
+            if (typeof data === 'string') {
+                status = data;
+                // 旧代码没有区分，默认 nuclei
+            } else {
+                type = data.type;
+                status = data.status;
+            }
+
+            // 更新独立状态跟踪
+            runningStatus[type] = (status === 'running');
+
+            // --- 更新对应工具的 UI ---
+            updateToolUI(type, status);
+        });
+
+        // 独立的 UI 更新函数
+        function updateToolUI(type, status) {
+            // 对于 system (Ping)，更新 nuclei 卡片上的 Ping 停止按钮
+            if (type === 'system') {
+                const btnStop = document.getElementById('btnStop');
+                if (status === 'running') {
+                    if(btnStop) {
+                        btnStop.disabled = false;
+                        btnStop.classList.remove('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                        btnStop.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    }
+                } else {
+                    // 只有当 nuclei 也不在运行时才禁用按钮
+                    if (!runningStatus['nuclei'] && btnStop) {
+                        btnStop.disabled = true;
+                        btnStop.classList.add('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                        btnStop.classList.remove('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    }
+                }
+                // 更新 nuclei 卡片的 badge（显示任一运行状态）
+                updateNucleiBadge();
+                return;
+            }
+
+            // 对于 nuclei，需要特殊处理（与 system 共享 UI）
+            if (type === 'nuclei') {
+                const btnStop = document.getElementById('btnStop');
+                if (status === 'running') {
+                    if(btnStop) {
+                        btnStop.disabled = false;
+                        btnStop.classList.remove('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                        btnStop.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    }
+                } else {
+                    // 只有当 system 也不在运行时才禁用按钮
+                    if (!runningStatus['system'] && btnStop) {
+                        btnStop.disabled = true;
+                        btnStop.classList.add('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                        btnStop.classList.remove('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    }
+                }
+                // 更新 nuclei 卡片的 badge
+                updateNucleiBadge();
+                return;
+            }
+
+            // 其他工具：独立 UI
+            const badge = document.getElementById(`${type}Badge`);
+            let stopBtnId = `btn${type.charAt(0).toUpperCase() + type.slice(1)}Stop`;
+            const btnStop = document.getElementById(stopBtnId);
+
+            if (status === 'running') {
+                if(btnStop) {
+                    btnStop.disabled = false;
+                    btnStop.classList.remove('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                    btnStop.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                }
+
+                if(badge) {
+                    badge.innerText = "RUNNING";
+                    badge.classList.remove('hidden');
+                }
+            } else {
+                if(btnStop) {
+                    btnStop.disabled = true;
+                    btnStop.classList.add('bg-red-900', 'text-slate-400', 'cursor-not-allowed');
+                    btnStop.classList.remove('bg-red-600', 'text-white', 'hover:bg-red-700');
+                }
+
+                if(badge) {
+                    badge.classList.add('hidden');
+                }
+            }
+        }
+
+        // 更新 nuclei 卡片的 badge（考虑 system 和 nuclei 的组合状态）
+        function updateNucleiBadge() {
+            const badge = document.getElementById('scanBadge'); // nuclei 卡片的 badge ID
+            if (!badge) return;
+
+            if (runningStatus['nuclei'] || runningStatus['system']) {
+                badge.innerText = "RUNNING";
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        // --- 输入处理 ---
+        function handleInput(e) {
+            if (e.key === 'Enter') {
+                const input = document.getElementById('termInput');
+                const val = input.value;
+                if (val) {
+                    // 发送给后端，附带当前 Tab 的类型
+                    socket.emit('term-input', { type: activeTab, input: val });
+                    
+                    input.value = '';
+                }
+            }
+        }
+
+        function clearCurrentLog() {
+            const div = document.getElementById(`term-${activeTab}`);
+            if(div) div.innerText = "";
+        }
+
+        // --- 通用停止任务 ---
+        function stopTask(type) {
+            socket.emit('stop-scan', type);
+        }
+
+        // --- 修复点：将 startPing 独立出来 ---
+        function startPing() {
+            const target = document.getElementById('targetInput').value;
+            if(!target) {
+                alert("请输入目标 IP！");
+                return;
+            }
+            switchTab('system'); // 切到 System Tab
+            socket.emit('start-ping', { target: target });
+        }
+
+        // --- 修复点：startNuclei 现在只负责 Nuclei ---
+        function startNuclei() {
+            const target = document.getElementById('targetInput').value;
+            const customArgs = document.getElementById('argsInput').value;
+            
+            if(!target && !customArgs) { 
+                alert("请输入目标或自定义参数"); 
+                return; 
+            }
+            switchTab('nuclei'); // 切到 Nuclei Tab
+            socket.emit('start-nuclei', { target: target, args: customArgs });
+        }
+
+        function stopNuclei() {
+            stopTask('nuclei');
+        }
+
+        // --- 通用折叠卡片逻辑 ---
+        function toggleCard(bodyId, iconId) {
+            const content = document.getElementById(bodyId);
+            const icon = document.getElementById(iconId);
+            
+            if (content.classList.contains('hidden')) {
+                // 展开
+                content.classList.remove('hidden');
+                // 旋转箭头向下 (根据 Tailwind 或 CSS transform)
+                icon.style.transform = 'rotate(0deg)';
+            } else {
+                // 折叠
+                content.classList.add('hidden');
+                // 旋转箭头向右 (假设默认向下)
+                icon.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        // --- Nmap Start ---
+        function startNmap() {
+            const target = document.getElementById('nmapTargetInput').value;
+            const args = document.getElementById('nmapArgsInput').value;
+
+            if(!target && !args) {
+                alert("请输入目标或参数");
+                return;
+            }
+            switchTab('nmap');
+            socket.emit('start-nmap', { target: target, args: args });
+        }
+        
+        // --- Fscan Start ---
+        function startFscan() {
+            const target = document.getElementById('fscanTargetInput').value;
+            const args = document.getElementById('fscanArgsInput').value;
+
+            if(!target && !args) {
+                alert("请输入目标 IP 或参数");
+                return;
+            }
+            switchTab('fscan');
+            socket.emit('start-fscan', { target: target, args: args });
+        }
+        
+        // --- Sqlmap Start ---
+        function startSqlmap() {
+            const target = document.getElementById('sqlmapTargetInput').value;
+            const args = document.getElementById('sqlmapArgsInput').value;
+
+            if(!target && !args) {
+                alert("请输入目标 URL 或参数");
+                return;
+            }
+            switchTab('sqlmap');
+            socket.emit('start-sqlmap', { target: target, args: args });
+        }
+
+        // --- Feroxbuster Start ---
+        function startFeroxbuster() {
+            const target = document.getElementById('feroxbusterTargetInput').value;
+            const args = document.getElementById('feroxbusterArgsInput').value;
+
+            if(!target && !args) {
+                alert("请输入目标 URL 或参数");
+                return;
+            }
+            switchTab('feroxbuster');
+            socket.emit('start-feroxbuster', { target: target, args: args });
+        }
+        
+        // 预留 MSF
+        function sendMsf(cmd) { socket.emit('start-msf-command', cmd); }
+    </script>

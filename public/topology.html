@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMbox - 增强版网络拓扑</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        #network { width: 100%; height: 100%; background-color: #1e293b; }
+        
+        /* 右侧面板动画 */
+        .right-panel {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateX(100%);
+        }
+        .right-panel.open {
+            transform: translateX(0);
+        }
+        
+        /* 滚动条 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        
+        .terminal-font { font-family: 'Consolas', 'Courier New', monospace; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden relative">
+
+    <!-- 顶部 -->
+    <header class="bg-slate-900 border-b border-indigo-900/50 p-3 flex justify-between items-center shadow-lg z-40 shrink-0">
+        <div class="flex items-center gap-3">
+            <h1 class="text-lg font-bold text-indigo-400 tracking-wider">NETWORK <span class="text-slate-500">TOPOLOGY</span></h1>
+            <span class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 border border-slate-700">v2.0 Enhanced</span>
+        </div>
+        <button onclick="window.location.href='/'" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded border border-slate-700 transition">
+            ← 返回主页
+        </button>
+    </header>
+
+    <div class="flex-1 relative flex overflow-hidden">
+        
+        <!-- 左侧控制面板 -->
+        <div class="w-72 bg-slate-800 border-r border-slate-700 p-4 flex flex-col gap-4 shrink-0 z-20 shadow-xl overflow-y-auto">
+            
+            <!-- 扫描配置 -->
+            <div class="bg-slate-900/50 p-3 rounded border border-slate-700">
+                <h3 class="text-xs font-bold text-slate-400 mb-2 uppercase">扫描配置 (Configuration)</h3>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 cursor-pointer group">
+                        <input type="checkbox" id="chkLive" class="accent-indigo-500 w-4 h-4 rounded border-slate-600 bg-slate-800">
+                        <span class="text-xs text-slate-300 group-hover:text-white transition">主动探活 (-Pn, 强制扫描)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer group">
+                        <input type="checkbox" id="chkOs" class="accent-indigo-500 w-4 h-4 rounded border-slate-600 bg-slate-800">
+                        <span class="text-xs text-slate-300 group-hover:text-white transition">识别目标主机 (-O, 系统探测)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- 扫描控制 -->
+            <div>
+                <button onclick="startScan()" id="btnScan" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded shadow transition flex items-center justify-center gap-2 text-sm">
+                    开始全网段扫描
+                </button>
+                <div id="statusText" class="text-xs text-slate-400 mt-2 text-center">就绪</div>
+            </div>
+
+            <!-- 进度条 -->
+            <div class="bg-slate-700 rounded-full h-1.5 w-full overflow-hidden mt-1">
+                <div id="scanProgress" class="h-full bg-green-500 w-0 transition-all duration-500"></div>
+            </div>
+
+            <!-- 统计信息 -->
+            <div class="bg-slate-900/50 rounded p-3 text-xs space-y-2 border border-slate-700">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">发现设备:</span>
+                    <span id="countVal" class="text-white font-bold">0</span>
+                </div>
+                <div class="h-px bg-slate-700 my-2"></div>
+                <!-- 图例 -->
+                <div class="space-y-1.5">
+                    <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-sm bg-purple-500 shadow shadow-purple-500/50"></div> <span class="text-slate-300">网关 (Gateway)</span></div>
+                    <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow shadow-blue-500/50"></div> <span class="text-slate-300">本机 (Attacker)</span></div>
+                    <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500 shadow shadow-green-500/50"></div> <span class="text-slate-300">目标设备 (Target)</span></div>
+                </div>
+            </div>
+
+            <!-- 实时日志 -->
+            <div class="flex-1 bg-black rounded p-2 overflow-y-auto font-mono text-[10px] text-green-400 border border-slate-700" id="scanLog">
+                > 系统初始化完成.
+            </div>
+        </div>
+
+        <!-- 拓扑画布 -->
+        <div id="network" class="flex-1 relative bg-slate-900 z-10" onclick="closeRightPanelIfClickedBackground(event)">
+            <!-- 提示文字 -->
+            <div class="absolute top-4 left-4 text-slate-600 text-xs pointer-events-none select-none z-0">
+                提示: 滚轮缩放，拖拽移动，点击节点查看详情
+            </div>
+        </div>
+        
+        <!-- 右侧详情面板 (默认隐藏) -->
+        <div id="rightPanel" class="absolute right-0 top-0 bottom-0 w-80 bg-slate-800 border-l border-slate-700 shadow-2xl right-panel z-30 flex flex-col">
+            <!-- 面板头部 -->
+            <div class="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    节点详情 (Node Details)
+                </h2>
+                <button onclick="closeRightPanel()" class="text-slate-400 hover:text-white transition">✖</button>
+            </div>
+
+            <!-- 节点信息 -->
+            <div class="p-4 space-y-3 border-b border-slate-700">
+                <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                    <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">IP Address</div>
+                    <div id="detail-ip" class="text-lg font-mono text-blue-400 font-bold select-all">---</div>
+                </div>
+                
+                <div class="grid grid-cols-1 gap-2">
+                    <div class="bg-slate-900 p-2 rounded border border-slate-700">
+                        <div class="text-[10px] text-slate-500 uppercase">MAC Address</div>
+                        <div id="detail-mac" class="text-xs font-mono text-slate-300 select-all">---</div>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded border border-slate-700">
+                        <div class="text-[10px] text-slate-500 uppercase">Vendor (厂商)</div>
+                        <div id="detail-vendor" class="text-xs text-slate-300">---</div>
+                    </div>
+                    <div class="bg-slate-900 p-2 rounded border border-slate-700">
+                        <div class="text-[10px] text-slate-500 uppercase">OS (操作系统)</div>
+                        <div id="detail-os" class="text-xs text-yellow-400">---</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="p-4 space-y-2 flex-1 overflow-y-auto">
+                <h3 class="text-xs font-bold text-slate-400 mb-2 uppercase">单点操作 (Actions)</h3>
+                
+                <button onclick="singleScan('port')" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 px-3 rounded text-xs border border-slate-600 transition flex justify-between group">
+                    <span>🔍 端口扫描 (Port Scan)</span>
+                    <span class="text-slate-500 group-hover:text-slate-300">-F</span>
+                </button>
+                
+                <button onclick="singleScan('service')" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 px-3 rounded text-xs border border-slate-600 transition flex justify-between group">
+                    <span>🛠 服务探测 (Service Det)</span>
+                    <span class="text-slate-500 group-hover:text-slate-300">-sV</span>
+                </button>
+                
+                <button onclick="singleScan('alive')" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 px-3 rounded text-xs border border-slate-600 transition flex justify-between group">
+                    <span>💓 主动探活 (Live Check)</span>
+                    <span class="text-slate-500 group-hover:text-slate-300">-PE</span>
+                </button>
+
+                <!-- 迷你终端 -->
+                <div class="mt-4 flex-1 flex flex-col h-64">
+                    <div class="flex justify-between items-center bg-black p-1 px-2 rounded-t border border-slate-700 border-b-0">
+                        <span class="text-[10px] text-slate-500">TERMINAL OUTPUT</span>
+                        <button onclick="clearSingleLog()" class="text-[10px] text-red-400 hover:text-white">Clear</button>
+                    </div>
+                    <div id="singleLog" class="flex-1 bg-black border border-slate-700 rounded-b p-2 overflow-y-auto terminal-font text-[10px] text-green-500 whitespace-pre-wrap leading-tight">
+                        > 等待指令...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+
+    <script>
+        const socket = io({ 
+            transports: ['websocket'],
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
+        
+        // --- Vis.js ---
+        const nodes = new vis.DataSet([]);
+        const edges = new vis.DataSet([]);
+        const container = document.getElementById('network');
+        
+        const data = { nodes: nodes, edges: edges };
+        const options = {
+            nodes: {
+                borderWidth: 2,
+                size: 30,
+                font: { color: '#e2e8f0', face: 'monospace', size: 14, strokeWidth: 2, strokeColor: '#0f172a' },
+                shadow: true
+            },
+            edges: {
+                width: 1.5,
+                color: { color: '#475569', highlight: '#6366f1' },
+                smooth: { type: 'continuous' }
+            },
+            physics: {
+                stabilization: false,
+                barnesHut: { 
+                    gravitationalConstant: -10000, // 增大排斥力，让节点更分散
+                    springConstant: 0.04,
+                    springLength: 200 // 增加连线长度
+                }
+            },
+            interaction: { hover: true, selectConnectedEdges: false }
+        };
+
+        const network = new vis.Network(container, data, options);
+
+        // --- 状态变量 ---
+        let currentSelectedIp = null;
+        let gatewayNodeId = null;
+        let attackerNodeId = 'local'; // 默认本机ID
+
+        // --- 扫描控制 ---
+        const btnScan = document.getElementById('btnScan');
+        const progressBar = document.getElementById('scanProgress');
+        const statusText = document.getElementById('statusText');
+        const logDiv = document.getElementById('scanLog');
+        const countVal = document.getElementById('countVal');
+
+        function log(msg) {
+            const div = document.createElement('div');
+            div.innerText = "> " + msg;
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function startScan() {
+            // 获取选项
+            const liveCheck = document.getElementById('chkLive').checked;
+            const osDetect = document.getElementById('chkOs').checked;
+
+            // UI 重置
+            nodes.clear();
+            edges.clear();
+            gatewayNodeId = null;
+            currentSelectedIp = null;
+            closeRightPanel();
+            
+            countVal.innerText = "0";
+            logDiv.innerHTML = "";
+            
+            btnScan.disabled = true;
+            btnScan.classList.add('opacity-50', 'cursor-not-allowed');
+            statusText.innerText = "扫描进行中 (Nmap)...";
+            statusText.classList.add('animate-pulse', 'text-yellow-400');
+            progressBar.style.width = "30%"; 
+            
+            let mode = "普通模式";
+            if (liveCheck) mode += " + 主动探活";
+            if (osDetect) mode += " + OS识别";
+            
+            log(`启动扫描: ${mode}`);
+            
+            // 发送请求
+            socket.emit('start-topology-scan', { liveCheck, osDetect });
+        }
+
+        // --- Socket 监听 ---
+
+        socket.on('topology-node', (nodeData) => {
+            // 更新计数
+            if (nodeData.group === 'target') {
+                countVal.innerText = parseInt(countVal.innerText) + 1;
+            }
+
+            // 样式定义
+            let color = '#22c55e'; // Target (Green)
+            let shape = 'dot';
+            let size = 25;
+            let label = nodeData.label;
+
+            if (nodeData.group === 'gateway') {
+                color = '#a855f7'; // Gateway (Purple)
+                shape = 'diamond';
+                size = 35;
+                gatewayNodeId = nodeData.id; 
+            } else if (nodeData.group === 'attacker') {
+                color = '#3b82f6'; // Attacker (Blue)
+                shape = 'hexagon';
+                size = 30;
+                attackerNodeId = nodeData.id;
+            }
+
+            // 添加/更新节点
+            try {
+                // 如果节点已存在，直接更新，避免重复添加导致的重绘问题
+                if (nodes.get(nodeData.id)) {
+                     nodes.update({
+                        id: nodeData.id,
+                        label: label,
+                        // 仅更新必要信息
+                        meta: {
+                            ip: nodeData.ip,
+                            mac: nodeData.mac || 'Unknown',
+                            vendor: nodeData.vendor || 'Unknown',
+                            os: nodeData.os || 'Unknown'
+                        }
+                    });
+                } else {
+                    nodes.add({
+                        id: nodeData.id,
+                        label: label,
+                        color: color,
+                        shape: shape,
+                        size: size,
+                        meta: {
+                            ip: nodeData.ip,
+                            mac: nodeData.mac || 'Unknown',
+                            vendor: nodeData.vendor || 'Unknown',
+                            os: nodeData.os || 'Unknown'
+                        }
+                    });
+                }
+
+                // 连线逻辑: 优先连接网关，其次连接本机
+                const targetId = gatewayNodeId || attackerNodeId;
+                
+                // 只有非核心节点才需要连线
+                if (nodeData.group === 'target') {
+                     // 确保目标节点存在才连线
+                    if (targetId && targetId !== nodeData.id) {
+                         const edgeId = targetId + '-' + nodeData.id;
+                         if (!edges.get(edgeId)) {
+                            edges.add({ id: edgeId, from: targetId, to: nodeData.id });
+                         }
+                    }
+                } 
+                // 如果是网关出现了，要把之前连在本机上的（或者悬空的）都拉过来吗？
+                // 简单起见，如果网关后出现，遍历所有 Target 重新连一次
+                else if (nodeData.group === 'gateway') {
+                    // 网关连本机
+                    if (attackerNodeId && attackerNodeId !== nodeData.id) {
+                         const edgeId = attackerNodeId + '-' + nodeData.id;
+                         if (!edges.get(edgeId)) edges.add({ id: edgeId, from: attackerNodeId, to: nodeData.id });
+                    }
+                    
+                    // 遍历所有已存在的 Target，如果它们还没连网关，就连上
+                    nodes.forEach((node) => {
+                        if (node.group === 'target' || (node.meta && node.id !== gatewayNodeId)) {
+                             // 移除旧连线（可选，为了整洁）
+                             // edges.remove(attackerNodeId + '-' + node.id); 
+                             
+                             const edgeId = gatewayNodeId + '-' + node.id;
+                             if (!edges.get(edgeId)) edges.add({ id: edgeId, from: gatewayNodeId, to: node.id });
+                        }
+                    });
+                }
+
+                log(`发现: ${nodeData.ip} [${nodeData.group}]`);
+
+            } catch (e) { console.warn(e); }
+        });
+
+        socket.on('topology-finish', () => {
+            progressBar.style.width = "100%";
+            statusText.innerText = "扫描完成";
+            statusText.classList.remove('animate-pulse', 'text-yellow-400');
+            statusText.classList.add('text-green-400');
+            btnScan.disabled = false;
+            btnScan.classList.remove('opacity-50', 'cursor-not-allowed');
+            log("扫描结束.");
+        });
+
+        // --- 交互逻辑 ---
+
+        network.on("click", function (params) {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const node = nodes.get(nodeId);
+                if (node) {
+                    openRightPanel(node);
+                }
+            } else {
+                // 点击背景关闭
+                closeRightPanel();
+            }
+        });
+
+        // 虽然 network click 事件处理了背景点击，但为了保险
+        function closeRightPanelIfClickedBackground(e) {
+            // 只有直接点在 container 上才算，vis.js 会拦截画布内的点击
+            // 这里留空，主要依赖 vis network click event
+        }
+
+        const rightPanel = document.getElementById('rightPanel');
+        const detailIp = document.getElementById('detail-ip');
+        const detailMac = document.getElementById('detail-mac');
+        const detailVendor = document.getElementById('detail-vendor');
+        const detailOs = document.getElementById('detail-os');
+        const singleLog = document.getElementById('singleLog');
+
+        function openRightPanel(node) {
+            currentSelectedIp = node.id; // IP作为ID
+            const meta = node.meta || {};
+
+            detailIp.innerText = node.id;
+            detailMac.innerText = meta.mac || 'N/A';
+            detailVendor.innerText = meta.vendor || 'N/A';
+            detailOs.innerText = meta.os || 'N/A';
+
+            rightPanel.classList.add('open');
+            
+            // 清空之前的日志（可选，或者保留）
+            // singleLog.innerText = "> 等待指令...";
+        }
+
+        function closeRightPanel() {
+            rightPanel.classList.remove('open');
+            currentSelectedIp = null;
+        }
+
+        // --- 单点扫描逻辑 ---
+
+        function singleScan(type) {
+            if (!currentSelectedIp) return;
+            
+            const btn = event.currentTarget; // 获取点击的按钮
+            btn.classList.add('opacity-70');
+            setTimeout(() => btn.classList.remove('opacity-70'), 200);
+
+            socket.emit('start-single-scan', { target: currentSelectedIp, type: type });
+        }
+
+        function clearSingleLog() {
+            singleLog.innerText = "";
+        }
+
+        socket.on('single-scan-log', (msg) => {
+            // 只有当面板打开时才追加，或者总是追加
+            singleLog.innerText += msg;
+            singleLog.scrollTop = singleLog.scrollHeight;
+        });
+
+    </script>
+</body>
+</html>
