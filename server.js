@@ -1,35 +1,86 @@
-/* server.js - 实时流数据修复版 */
+/* server.js - TMbox 安全控制台 - HTTPS 版本 */
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require("socket.io");
 const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
+// ==================== TLS 证书配置 ====================
+const CERTS_DIR = path.join(__dirname, 'certs');
+const HTTPS_PORT = 3443;
+const HTTP_PORT = 3000;
+
+// 检查证书文件是否存在
+const keyPath = path.join(CERTS_DIR, 'tmbox-key.pem');
+const certPath = path.join(CERTS_DIR, 'tmbox-cert.pem');
+
+let sslOptions = null;
+let useHTTPS = false;
+
+if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    try {
+        sslOptions = {
+            key: fs.readFileSync(keyPath),
+            cert: fs.readFileSync(certPath)
+        };
+        useHTTPS = true;
+        console.log('[✓] TLS 证书加载成功');
+    } catch (err) {
+        console.error('[!] TLS 证书加载失败:', err.message);
+    }
+} else {
+    console.log('[!] 未找到 TLS 证书，仅使用 HTTP 模式');
+    console.log('    提示: 运行 node generate-certs.js 生成证书');
+}
+
+// ==================== Express 应用 ====================
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+
+// 安全头部
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- 新增路由: MSF 控制台 ---
+// ==================== 路由配置 ====================
+
+// 首页
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/index.html'));
+});
+
+// MSF 控制台
 app.get('/msf', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/msf.html'));
 });
 
-// --- 新增路由: 网络拓扑图 ---
+// 网络拓扑图
 app.get('/topology', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/topology.html'));
 });
 
-// --- 新增路由: 系统实时监控 ---
+// 系统实时监控
 app.get('/monitor', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/monitor.html'));
 });
 
-// --- Payload 文件管理 API ---
+// Webshell 管理
+app.get('/webshell', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/webshell.html'));
+});
+
+// ==================== API 路由 ====================
+
+// Payload 文件管理
 const PAYLOAD_DIR = '/tmp';
 
 // 获取 payload 文件列表
@@ -38,7 +89,6 @@ app.get('/api/payloads', (req, res) => {
         const files = fs.readdirSync(PAYLOAD_DIR);
         const payloadFiles = files
             .filter(f => {
-                // 过滤出可能是 payload 的文件
                 const ext = path.extname(f).toLowerCase();
                 return ['.exe', '.elf', '.php', '.jsp', '.asp', '.aspx', '.war', '.jar', '.py', '.pl', '.sh', '.raw', '.bin'].includes(ext) ||
                        f.startsWith('payload') || f.startsWith('shell') || f.startsWith('msf');
@@ -54,7 +104,7 @@ app.get('/api/payloads', (req, res) => {
                     modified: stats.mtime
                 };
             })
-            .sort((a, b) => b.modified - a.modified); // 按修改时间倒序
+            .sort((a, b) => b.modified - a.modified);
 
         res.json({ success: true, files: payloadFiles });
     } catch (err) {
@@ -67,25 +117,19 @@ app.get('/api/payloads/download/:filename', (req, res) => {
     const filename = req.params.filename;
     const filePath = path.join(PAYLOAD_DIR, filename);
 
-    // 安全检查：防止目录遍历攻击
     const normalizedPath = path.normalize(filePath);
     if (!normalizedPath.startsWith(PAYLOAD_DIR)) {
         return res.status(403).json({ error: 'Access denied' });
     }
 
-    // 检查文件是否存在
     if (!fs.existsSync(filePath)) {
         return res.status(404).json({ error: 'File not found' });
     }
 
-    // 获取文件状态
     const stats = fs.statSync(filePath);
-
-    // 设置响应头
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', stats.size);
 
-    // 根据扩展名设置 Content-Type
     const ext = path.extname(filename).toLowerCase();
     const contentTypes = {
         '.exe': 'application/octet-stream',
@@ -104,7 +148,6 @@ app.get('/api/payloads/download/:filename', (req, res) => {
     };
     res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
 
-    // 流式传输文件
     const fileStream = fs.createReadStream(filePath);
     fileStream.pipe(res);
 
@@ -119,7 +162,6 @@ app.delete('/api/payloads/:filename', (req, res) => {
     const filename = req.params.filename;
     const filePath = path.join(PAYLOAD_DIR, filename);
 
-    // 安全检查
     const normalizedPath = path.normalize(filePath);
     if (!normalizedPath.startsWith(PAYLOAD_DIR)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -142,10 +184,243 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// --- 系统信息 API ---
+// ==================== Webshell 代理 API ====================
+const querystring = require('querystring');
+
+// Webshell 代理请求
+app.post('/api/webshell/proxy', express.urlencoded({ extended: true, limit: '10mb' }), async (req, res) => {
+    let { url, method = 'POST', headers = '{}', body = '{}', timeout = 30000 } = req.body;
+
+    if (!url) {
+        return res.status(400).json({ success: false, error: 'URL is required' });
+    }
+
+    console.log(`[Webshell Proxy] ${method} ${url}`);
+    console.log('[Webshell Proxy] Raw body param:', typeof body, body.substring ? body.substring(0, 100) : body);
+
+    // 解析JSON字符串
+    try {
+        if (typeof headers === 'string') headers = JSON.parse(headers);
+        if (typeof body === 'string') body = JSON.parse(body);
+    } catch (e) {
+        console.error('[Webshell Proxy] JSON parse error:', e.message);
+    }
+
+    console.log('[Webshell Proxy] Parsed body object:', JSON.stringify(body));
+
+    try {
+        const parsedUrl = new URL(url);
+        const isHttps = parsedUrl.protocol === 'https:';
+        const httpModule = isHttps ? https : http;
+
+        // 构建请求体 - 确保body是对象后转url编码
+        const bodyObj = typeof body === 'object' ? body : {};
+        const bodyString = querystring.stringify(bodyObj);
+
+        console.log('[Webshell Proxy] Final body string:', bodyString);
+        console.log('[Webshell Proxy] Content-Length:', Buffer.byteLength(bodyString));
+
+        // 构建请求选项
+        const options = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || (isHttps ? 443 : 80),
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: method,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(bodyString),
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache'
+            },
+            timeout: parseInt(timeout) || 30000
+        };
+
+        // 合并自定义头部
+        if (headers && typeof headers === 'object') {
+            Object.keys(headers).forEach(key => {
+                if (key.toLowerCase() !== 'content-type' && key.toLowerCase() !== 'content-length') {
+                    options.headers[key] = headers[key];
+                }
+            });
+        }
+
+        const proxyReq = httpModule.request(options, (proxyRes) => {
+            let data = '';
+            const chunks = [];
+
+            proxyRes.on('data', (chunk) => {
+                chunks.push(chunk);
+            });
+
+            proxyRes.on('end', () => {
+                const buffer = Buffer.concat(chunks);
+
+                // 尝试检测编码
+                const contentType = proxyRes.headers['content-type'] || '';
+                let responseData;
+                if (contentType.includes('application/octet-stream') || buffer.length > 100000) {
+                    // 二进制数据返回 base64
+                    responseData = buffer.toString('base64');
+                    res.json({
+                        success: true,
+                        status: proxyRes.statusCode,
+                        headers: proxyRes.headers,
+                        data: responseData,
+                        encoding: 'base64'
+                    });
+                } else {
+                    // 文本数据
+                    responseData = buffer.toString('utf8');
+                    console.log('[Webshell Proxy] Response:', responseData.substring(0, 200));
+                    res.json({
+                        success: true,
+                        status: proxyRes.statusCode,
+                        headers: proxyRes.headers,
+                        data: responseData
+                    });
+                }
+            });
+        });
+
+        proxyReq.on('error', (err) => {
+            console.error('[Webshell Proxy Error]', err.message);
+            res.status(500).json({
+                success: false,
+                error: err.message,
+                code: err.code
+            });
+        });
+
+        proxyReq.on('timeout', () => {
+            proxyReq.destroy();
+            res.status(504).json({
+                success: false,
+                error: 'Request timeout'
+            });
+        });
+
+        // 发送请求体
+        if (bodyString && method !== 'GET') {
+            proxyReq.write(bodyString);
+        }
+
+        proxyReq.end();
+
+    } catch (err) {
+        console.error('[Webshell Proxy Error]', err.message);
+        res.status(500).json({
+            success: false,
+            error: err.message
+        });
+    }
+});
+
+// Webshell 测试连接
+app.post('/api/webshell/test', express.urlencoded({ extended: true }), async (req, res) => {
+    const { url, password = 'cmd', type = 'php8_eval' } = req.body;
+
+    if (!url) {
+        return res.status(400).json({ success: false, error: 'URL is required' });
+    }
+
+    console.log(`[Webshell Test] Testing ${url}`);
+
+    // 生成测试标记
+    const testMarker = 'TMBOX_TEST_' + Date.now();
+
+    // 根据类型构建测试payload
+    let testPayload = '';
+    switch(type) {
+        case 'php8_eval':
+        case 'php_eval':
+        case 'php_base64':
+        case 'php_concat':
+        case 'php_variable_func':
+            testPayload = `echo '${testMarker}';`;
+            break;
+        case 'php8_system':
+        case 'php8_passthru':
+        case 'php8_shell_exec':
+        case 'php8_exec':
+        case 'php_system':
+        case 'php_passthru':
+        case 'php_shell_exec':
+            testPayload = `echo "${testMarker}";`;
+            break;
+        default:
+            testPayload = `echo '${testMarker}';`;
+    }
+
+    try {
+        const parsedUrl = new URL(url);
+        const isHttps = parsedUrl.protocol === 'https:';
+        const httpModule = isHttps ? https : http;
+
+        const bodyString = querystring.stringify({ [password]: testPayload });
+
+        const options = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || (isHttps ? 443 : 80),
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(bodyString),
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 10000
+        };
+
+        const proxyReq = httpModule.request(options, (proxyRes) => {
+            let data = '';
+            proxyRes.on('data', (chunk) => { data += chunk; });
+            proxyRes.on('end', () => {
+                const success = data.includes(testMarker);
+                res.json({
+                    success: success,
+                    status: proxyRes.statusCode,
+                    contains: data.includes(testMarker),
+                    responseLength: data.length,
+                    preview: data.substring(0, 500),
+                    message: success ? '连接成功!' : '连接失败，请检查密码或类型是否正确'
+                });
+            });
+        });
+
+        proxyReq.on('error', (err) => {
+            res.json({
+                success: false,
+                error: err.message,
+                message: '连接错误: ' + err.message
+            });
+        });
+
+        proxyReq.on('timeout', () => {
+            proxyReq.destroy();
+            res.json({
+                success: false,
+                error: 'Timeout',
+                message: '连接超时'
+            });
+        });
+
+        proxyReq.write(bodyString);
+        proxyReq.end();
+
+    } catch (err) {
+        res.json({
+            success: false,
+            error: err.message,
+            message: '请求错误: ' + err.message
+        });
+    }
+});
+
+// 系统信息 API
 app.get('/api/system-info', (req, res) => {
     try {
-        // 获取磁盘使用情况
         const { execSync } = require('child_process');
         let diskUsage = [];
         try {
@@ -182,28 +457,22 @@ app.get('/api/system-info', (req, res) => {
     }
 });
 
-// --- SSH 登录信息 API ---
+// SSH 登录信息 API
 app.get('/api/ssh-info', (req, res) => {
     try {
         const { execSync } = require('child_process');
 
-        // 1. 获取当前登录用户 (使用 who 命令)
         let currentUsers = [];
         try {
             const whoOutput = execSync('who 2>/dev/null || echo ""', { encoding: 'utf8', timeout: 5000 });
             const lines = whoOutput.trim().split('\n').filter(l => l.trim());
             currentUsers = lines.map(line => {
-                // 格式: user    tty     2024-01-01 12:00 (192.168.1.1)
                 const parts = line.split(/\s+/);
                 const user = parts[0] || '';
                 const tty = parts[1] || '';
-                // 提取 IP 地址 (括号内)
                 const ipMatch = line.match(/\(([^)]+)\)/);
                 const ip = ipMatch ? ipMatch[1] : null;
-                // 判断是否为本地登录
                 const isLocal = !ip || ip.startsWith(':') || ip === 'tty' || ip.startsWith('tty');
-
-                // 提取时间
                 const timeMatch = line.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
                 const time = timeMatch ? timeMatch[1] : '';
 
@@ -213,27 +482,21 @@ app.get('/api/ssh-info', (req, res) => {
             console.error('who 命令执行失败:', e.message);
         }
 
-        // 2. 获取今日 SSH 登录次数
         let todayLogins = 0;
         try {
-            const today = new Date().toISOString().slice(0, 10);
-            // 使用 last 命令获取今天的登录记录
             const lastOutput = execSync(`last -n 50 2>/dev/null | grep -E "^\\w" | head -30 || echo ""`, {
                 encoding: 'utf8',
                 timeout: 5000
             });
             const lines = lastOutput.trim().split('\n').filter(l => l.trim() && !l.startsWith('wtmp'));
-
-            // 统计今天的登录次数
             todayLogins = lines.filter(line => {
-                // last 输出的日期格式: Jan 15 12:00 或 Mon Jan 15 12:00
-                return line.includes(today.slice(5)) || line.includes(new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit' }));
+                return line.includes(new Date().toISOString().slice(5, 10)) ||
+                       line.includes(new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit' }));
             }).length;
         } catch (e) {
             console.error('last 命令执行失败:', e.message);
         }
 
-        // 3. 获取最近登录记录
         let recentLogins = [];
         try {
             const lastOutput = execSync('last -n 10 2>/dev/null | grep -E "^\\w" | head -10 || echo ""', {
@@ -245,16 +508,10 @@ app.get('/api/ssh-info', (req, res) => {
             recentLogins = lines.slice(0, 8).map(line => {
                 const parts = line.split(/\s+/);
                 const user = parts[0] || '';
-                // IP 可能在不同位置，尝试提取
                 const ipMatch = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
                 const ip = ipMatch ? ipMatch[1] : (parts[2] || '本地');
-
-                // 检查是否仍在登录
                 const status = line.includes('still logged in') ? 'active' : 'success';
-                // 检查是否是失败登录
                 const isFailed = line.includes('gone') && !line.includes('still');
-
-                // 提取时间信息
                 const timeInfo = parts.slice(3, 7).join(' ');
 
                 return {
@@ -268,21 +525,16 @@ app.get('/api/ssh-info', (req, res) => {
             console.error('获取最近登录记录失败:', e.message);
         }
 
-        // 4. 获取失败登录尝试次数 (从 auth.log)
         let failedAttempts = 0;
         try {
-            // 尝试读取今天的失败登录次数
             const failedOutput = execSync(
                 'grep -c "Failed password\\|authentication failure\\|Invalid user" /var/log/auth.log 2>/dev/null || ' +
                 'journalctl -u ssh --since today 2>/dev/null | grep -c "Failed\\|Invalid" || echo 0',
                 { encoding: 'utf8', timeout: 5000 }
             );
             failedAttempts = parseInt(failedOutput.trim()) || 0;
-        } catch (e) {
-            // 忽略权限错误
-        }
+        } catch (e) {}
 
-        // 5. 统计活跃 SSH 连接数 (排除本地登录)
         const activeSSH = currentUsers.filter(u => !u.isLocal).length;
 
         res.json({
@@ -298,9 +550,40 @@ app.get('/api/ssh-info', (req, res) => {
     }
 });
 
-// 多任务管理字典
+// ==================== 服务器与 Socket.IO 配置 ====================
+
+let server, io;
+
+if (useHTTPS) {
+    // HTTPS 模式
+    server = https.createServer(sslOptions, app);
+    io = new Server(server, {
+        cors: { origin: "*" },
+        // WebSocket 安全配置
+        allowEIO3: true,
+        transports: ['websocket', 'polling']
+    });
+
+    // HTTP 重定向到 HTTPS
+    const httpRedirectServer = http.createServer((req, res) => {
+        const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+        res.writeHead(301, { Location: `https://${host}:${HTTPS_PORT}${req.url}` });
+        res.end();
+    });
+    httpRedirectServer.listen(HTTP_PORT, () => {
+        console.log(`[→] HTTP 重定向服务: http://0.0.0.0:${HTTP_PORT} → https://...:${HTTPS_PORT}`);
+    });
+
+} else {
+    // 仅 HTTP 模式
+    server = http.createServer(app);
+    io = new Server(server, { cors: { origin: "*" } });
+}
+
+// ==================== 多任务管理 ====================
+
 const activeScans = {
-    'system': null, // Ping
+    'system': null,
     'nuclei': null,
     'nmap': null,
     'fscan': null,
@@ -308,14 +591,12 @@ const activeScans = {
     'sqlmap': null
 };
 
-let currentMsfProcess = null; // 持久化 MSF 进程
+let currentMsfProcess = null;
 
 // 系统负载监控 (每 2 秒一次)
 setInterval(() => {
     const loads = os.loadavg();
-    // 负载取 1 分钟平均值
     const usage = loads[0].toFixed(2);
-    // 内存计算
     const total = os.totalmem();
     const free = os.freemem();
     const mem = ((total - free) / total * 100).toFixed(1);
@@ -323,13 +604,16 @@ setInterval(() => {
     io.emit('sys-update', { load: usage, mem: mem, loads: loads.map(l => l.toFixed(2)) });
 }, 2000);
 
+// ==================== Socket.IO 事件处理 ====================
+
 io.on('connection', (socket) => {
-    // --- 终端输入处理 ---
+    console.log('[+] 新客户端连接:', socket.id);
+
+    // 终端输入处理
     socket.on('term-input', (data) => {
-        // data 可是字符串(旧) 或 { type, input }
         let type = 'system';
         let input = '';
-        
+
         if (typeof data === 'string') {
             input = data;
         } else {
@@ -341,7 +625,6 @@ io.on('connection', (socket) => {
         if (proc && proc.stdin) {
             try {
                 proc.stdin.write(input + '\n');
-                // 回显用户的输入
                 socket.emit('log', { source: type, data: input + '\n' });
             } catch (e) {
                 console.error("Input Error:", e);
@@ -349,29 +632,22 @@ io.on('connection', (socket) => {
         }
     });
 
-        // --- 新增的功能: Ping 测试 ---
+    // Ping 测试
     socket.on('start-ping', (data) => {
         const target = data.target;
-        const type = 'system'; // Ping 归类为 System
+        const type = 'system';
 
-        // 1. 如果有其他任务在跑，先阻止
         if (activeScans[type]) {
             socket.emit('log', { source: type, data: '\n[ERR] 当前 Ping 任务正在运行，请先停止！\n' });
             return;
         }
 
-        // 2. 更新状态
         socket.emit('scan-status', { type: type, status: 'running' });
         socket.emit('log', { source: type, data: `\n[SYSTEM] 正在执行 PING 测试: ${target}...\n` });
 
-        // 3. 执行系统 ping 命令
-        // -c 10: 只平 10 次自动停止 (防止无限运行)
         const ping = spawn('unbuffer', ['ping', '-c', '10', target]);
-
-        // 标记当前进程
         activeScans[type] = ping;
 
-        // 4. 实时回显
         ping.stdout.on('data', (data) => {
             socket.emit('log', { source: type, data: data.toString() });
         });
@@ -392,8 +668,9 @@ io.on('connection', (socket) => {
             socket.emit('log', { source: type, data: `\n[FATAL] 无法启动 Ping: ${err.message}\n` });
         });
     });
-    console.log('新客户端连接:', socket.id);
-        socket.on('start-nuclei', (data) => {
+
+    // Nuclei 扫描
+    socket.on('start-nuclei', (data) => {
         const target = data.target;
         const customArgsStr = data.args || "";
         const type = 'nuclei';
@@ -410,35 +687,20 @@ io.on('connection', (socket) => {
         if(customArgsStr) logMsg += `> 参数: ${customArgsStr}\n`;
         socket.emit('log', { source: type, data: logMsg });
 
-        // --- 核心修复：支持自定义参数组合 ---
-
         const cmd = 'unbuffer';
+        const args = ['-p', '/usr/local/bin/nuclei'];
 
-        // 基础命令结构: unbuffer -p /usr/local/bin/nuclei ...
-        const args = [
-            '-p',                    // 告诉 unbuffer 使用管道模式
-            '/usr/local/bin/nuclei'  // Nuclei 路径
-        ];
-
-        // 1. 如果用户输入了 Target，自动加上 -u
         if (target && target.trim() !== "") {
             args.push('-u', target);
         }
 
-        // 2. 解析自定义参数字符串 (支持双引号包含空格的参数)
-        // 正则逻辑: 匹配 非空格字符 OR 双引号内的内容
         const argRegex = /[^\s"]+|"([^"]*)"/gi;
         let match;
-
         while ((match = argRegex.exec(customArgsStr)) !== null) {
-            // match[1] 是引号内的内容 (如果有引号)，match[0] 是整个匹配串
-            // 如果匹配到了引号内容，就用引号内的；否则用整个串
             let val = match[1] ? match[1] : match[0];
             args.push(val);
         }
 
-        // 3. 强制追加关键参数 (保证 Web 终端体验)
-        // -stats: 建议保留，用于保活显示，但如果用户在参数里写了就不重复加
         if (!args.includes('-stats')) {
             args.push('-stats');
         }
@@ -465,11 +727,11 @@ io.on('connection', (socket) => {
         nuclei.on('error', (err) => {
             activeScans[type] = null;
             socket.emit('scan-status', { type: type, status: 'stopped' });
-            socket.emit('log', { source: type, data: `\n[FATAL] 启动失败: ${err.message}\n请检查是否安装了 coreutils\n` });
+            socket.emit('log', { source: type, data: `\n[FATAL] 启动失败: ${err.message}\n` });
         });
     });
 
-    // --- 新增的功能: Nmap 扫描 ---
+    // Nmap 扫描
     socket.on('start-nmap', (data) => {
         const target = data.target;
         const customArgsStr = data.args || "";
@@ -488,15 +750,8 @@ io.on('connection', (socket) => {
         socket.emit('log', { source: type, data: logMsg });
 
         const cmd = 'unbuffer';
+        const args = ['-p', '/usr/bin/nmap'];
 
-        // Nmap 基础参数
-        // 假设 nmap 在 PATH 中，或者使用 /usr/bin/nmap
-        const args = [
-            '-p',
-            '/usr/bin/nmap'
-        ];
-
-        // 1. 解析自定义参数 (正则同 Nuclei)
         const argRegex = /[^\s"]+|"([^"]*)"/gi;
         let match;
         while ((match = argRegex.exec(customArgsStr)) !== null) {
@@ -504,12 +759,10 @@ io.on('connection', (socket) => {
             args.push(val);
         }
 
-        // 2. 如果有 target，追加到最后 (Nmap target 通常在最后)
         if (target && target.trim() !== "") {
             args.push(target);
         }
 
-        // 3. 强制无缓冲输出 (虽有 unbuffer，但 Nmap 有时需要 -v)
         if (!args.includes('-v') && !args.includes('-vv')) {
             args.push('-v');
         }
@@ -540,7 +793,7 @@ io.on('connection', (socket) => {
         });
     });
 
-    // --- 新增的功能: Fscan 扫描 ---
+    // Fscan 扫描
     socket.on('start-fscan', (data) => {
         const target = data.target;
         const customArgsStr = data.args || "";
@@ -559,14 +812,8 @@ io.on('connection', (socket) => {
         socket.emit('log', { source: type, data: logMsg });
 
         const cmd = 'unbuffer';
+        const args = ['-p', '/usr/local/bin/fscan'];
 
-        // Fscan 基础参数
-        const args = [
-            '-p',
-            '/usr/local/bin/fscan' // 假设路径, 如果在 PATH 可直接用 'fscan'
-        ];
-
-        // 1. 解析自定义参数
         const argRegex = /[^\s"]+|"([^"]*)"/gi;
         let match;
         while ((match = argRegex.exec(customArgsStr)) !== null) {
@@ -574,15 +821,12 @@ io.on('connection', (socket) => {
             args.push(val);
         }
 
-        // 2. 如果有 target，自动映射为 -h 参数 (Fscan 使用 -h 指定主机)
         if (target && target.trim() !== "") {
-            // 防止用户在参数里已经写了 -h
             if (!args.includes('-h')) {
                 args.push('-h', target);
             }
         }
 
-        // 3. 默认不保存文件 (避免垃圾文件堆积)，除非用户指定了 -o
         if (!args.includes('-o') && !args.includes('-no')) {
             args.push('-no');
         }
@@ -609,11 +853,11 @@ io.on('connection', (socket) => {
         fscan.on('error', (err) => {
             activeScans[type] = null;
             socket.emit('scan-status', { type: type, status: 'stopped' });
-            socket.emit('log', { source: type, data: `\n[FATAL] 无法启动 Fscan: ${err.message}\n请确认 /usr/local/bin/fscan 是否存在\n` });
+            socket.emit('log', { source: type, data: `\n[FATAL] 无法启动 Fscan: ${err.message}\n` });
         });
     });
 
-    // --- 新增的功能: Feroxbuster 目录爆破 ---
+    // Feroxbuster 目录爆破
     socket.on('start-feroxbuster', (data) => {
         const target = data.target;
         const customArgsStr = data.args || "";
@@ -632,14 +876,8 @@ io.on('connection', (socket) => {
         socket.emit('log', { source: type, data: logMsg });
 
         const cmd = 'unbuffer';
+        const args = ['-p', '/usr/local/bin/feroxbuster'];
 
-        // Feroxbuster 基础参数
-        const args = [
-            '-p',
-            '/usr/local/bin/feroxbuster'
-        ];
-
-        // 1. 解析自定义参数
         const argRegex = /[^\s"]+|"([^"]*)"/gi;
         let match;
         while ((match = argRegex.exec(customArgsStr)) !== null) {
@@ -647,7 +885,6 @@ io.on('connection', (socket) => {
             args.push(val);
         }
 
-        // 2. 如果有 target，自动映射为 -u 参数
         if (target && target.trim() !== "") {
             if (!args.includes('-u') && !args.includes('--url')) {
                 args.push('-u', target);
@@ -676,11 +913,11 @@ io.on('connection', (socket) => {
         feroxbuster.on('error', (err) => {
             activeScans[type] = null;
             socket.emit('scan-status', { type: type, status: 'stopped' });
-            socket.emit('log', { source: type, data: `\n[FATAL] 无法启动 Feroxbuster: ${err.message}\n请确认 /usr/local/bin/feroxbuster 是否存在\n` });
+            socket.emit('log', { source: type, data: `\n[FATAL] 无法启动 Feroxbuster: ${err.message}\n` });
         });
     });
 
-    // --- 新增的功能: Sqlmap 扫描 ---
+    // Sqlmap 扫描
     socket.on('start-sqlmap', (data) => {
         const target = data.target;
         const customArgsStr = data.args || "";
@@ -699,13 +936,8 @@ io.on('connection', (socket) => {
         socket.emit('log', { source: type, data: logMsg });
 
         const cmd = 'unbuffer';
-        // 假设 sqlmap 在 PATH 中，或者使用 /usr/bin/sqlmap
-        const args = [
-            '-p',
-            '/usr/bin/sqlmap'
-        ];
+        const args = ['-p', '/usr/bin/sqlmap'];
 
-        // 1. 解析自定义参数
         const argRegex = /[^\s"]+|"([^"]*)"/gi;
         let match;
         while ((match = argRegex.exec(customArgsStr)) !== null) {
@@ -713,14 +945,12 @@ io.on('connection', (socket) => {
             args.push(val);
         }
 
-        // 2. 如果有 target，自动映射为 -u 参数
         if (target && target.trim() !== "") {
             if (!args.includes('-u') && !args.includes('--url')) {
                 args.push('-u', target);
             }
         }
 
-        // 3. 强制非交互模式 (batch) 以防止卡死在询问环节
         if (!args.includes('--batch')) {
             args.push('--batch');
         }
@@ -735,7 +965,6 @@ io.on('connection', (socket) => {
         });
 
         sqlmap.stderr.on('data', (data) => {
-            // Sqlmap 的部分正常信息也会输出到 stderr
             socket.emit('log', { source: type, data: data.toString() });
         });
 
@@ -752,8 +981,97 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Webshell 扫描 (使用 gobuster + seclists)
+    socket.on('start-webshell-scan', (data) => {
+        const target = data.target;
+        const wordlist = data.wordlist || '/usr/share/seclists/Web-Shells/backdoor_list.txt';
+        const threads = data.threads || 50;
+        const type = 'webshell-scan';
+
+        if (activeScans[type]) {
+            socket.emit('log', { source: type, data: '\n[ERR] Webshell 扫描任务正在运行中...\n' });
+            return;
+        }
+
+        socket.emit('scan-status', { type: type, status: 'running' });
+        socket.emit('log', { source: type, data: `\n[SYSTEM] 开始 Webshell 扫描...\n> 目标: ${target}\n> 字典: ${wordlist}\n` });
+
+        // 使用 gobuster 或 ffuf
+        const fs = require('fs');
+        let cmd, args;
+
+        // 检查字典是否存在
+        if (fs.existsSync(wordlist)) {
+            // 优先使用 ffuf (更快)
+            try {
+                require('child_process').execSync('which ffuf', { stdio: 'ignore' });
+                cmd = 'unbuffer';
+                args = ['ffuf', '-u', target + '/FUZZ', '-w', wordlist, '-t', threads.toString(), '-mc', '200,301,302,403', '-fs', '0'];
+            } catch {
+                // 回退到 gobuster
+                try {
+                    require('child_process').execSync('which gobuster', { stdio: 'ignore' });
+                    cmd = 'unbuffer';
+                    args = ['gobuster', 'dir', '-u', target, '-w', wordlist, '-t', threads.toString(), '-q'];
+                } catch {
+                    // 使用 curl 脚本
+                    socket.emit('log', { source: type, data: '[!] ffuf/gobuster 未安装，使用 curl 扫描...\n' });
+                    cmd = 'bash';
+                    args = ['-c', `
+                        while IFS= read -r line; do
+                            url="${target}/$line"
+                            status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "$url" 2>/dev/null)
+                            if [ "$status" = "200" ] || [ "$status" = "301" ] || [ "$status" = "302" ]; then
+                                echo "[$status] $url"
+                            fi
+                        done < "${wordlist}"
+                    `];
+                }
+            }
+        } else {
+            // 字典不存在，使用内置路径
+            socket.emit('log', { source: type, data: '[!] 字典不存在，使用内置路径扫描...\n' });
+            cmd = 'bash';
+            args = ['-c', `
+                paths="shell.php cmd.php c.php b.php a.php 1.php x.php test.php admin/shell.php admin/cmd.php upload/shell.php uploads/shell.php config.php behinder.php ant.php wso.php c99.php r57.php webshell.php"
+                for p in $paths; do
+                    url="${target}/$p"
+                    status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "$url" 2>/dev/null)
+                    if [ "$status" = "200" ]; then
+                        echo "[200] $url"
+                    fi
+                done
+            `];
+        }
+
+        console.log(`执行 Webshell 扫描: ${cmd} ${args.join(' ')}`);
+
+        const scanner = spawn(cmd, args);
+        activeScans[type] = scanner;
+
+        scanner.stdout.on('data', (data) => {
+            socket.emit('log', { source: type, data: data.toString() });
+        });
+
+        scanner.stderr.on('data', (data) => {
+            socket.emit('log', { source: type, data: data.toString() });
+        });
+
+        scanner.on('close', (code) => {
+            activeScans[type] = null;
+            socket.emit('scan-status', { type: type, status: 'stopped' });
+            socket.emit('log', { source: type, data: `\n[SYSTEM] Webshell 扫描完成 (Exit Code: ${code})\n` });
+        });
+
+        scanner.on('error', (err) => {
+            activeScans[type] = null;
+            socket.emit('scan-status', { type: type, status: 'stopped' });
+            socket.emit('log', { source: type, data: `\n[FATAL] 扫描失败: ${err.message}\n` });
+        });
+    });
+
+    // 停止扫描
     socket.on('stop-scan', (type) => {
-        // 兼容: 如果没有 type，默认为 nuclei (旧行为) 或不做处理
         if (!type) type = 'nuclei';
 
         const proc = activeScans[type];
@@ -765,12 +1083,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- MSF 交互式会话逻辑 ---
+    // MSF 交互式会话
     socket.on('start-msf', () => {
         if (currentMsfProcess) {
-            // MSF 已在运行，只通知当前客户端
             socket.emit('msf-output', '\n[SYSTEM] MSF 会话已存在，已连接.\n');
-            // 立即刷新会话列表
             setTimeout(() => {
                 if (currentMsfProcess) {
                     currentMsfProcess.stdin.write('sessions -l\n');
@@ -779,12 +1095,9 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 广播给所有客户端
-        io.emit('msf-output', '\n[SYSTEM] 正在启动 Metasploit Framework (这可能需要几秒钟)...\n');
+        io.emit('msf-output', '\n[SYSTEM] 正在启动 Metasploit Framework...\n');
 
-        // 使用 unbuffer -p 保证交互性, -q 启用静默启动
         const msf = spawn('unbuffer', ['-p', 'msfconsole', '-q']);
-
         currentMsfProcess = msf;
 
         msf.stdout.on('data', (data) => {
@@ -803,7 +1116,6 @@ io.on('connection', (socket) => {
 
     socket.on('msf-input', (cmd) => {
         if (currentMsfProcess) {
-            // 写入命令并回车
             currentMsfProcess.stdin.write(cmd + '\n');
         } else {
             socket.emit('msf-output', '\n[ERR] 会话未启动. 请刷新页面.\n');
@@ -818,13 +1130,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- 网络拓扑扫描逻辑 ---
+    // 网络拓扑扫描
     socket.on('start-topology-scan', (options) => {
-        // 默认参数
-        const doLiveCheck = options && options.liveCheck; // 主动探活 -Pn
-        const doOsDetect = options && options.osDetect;   // 系统识别 -O
-        
-        // 1. 获取本机信息与网段
+        const doLiveCheck = options && options.liveCheck;
+        const doOsDetect = options && options.osDetect;
+
         const interfaces = os.networkInterfaces();
         let localIP = '127.0.0.1';
         let cidr = '';
@@ -832,11 +1142,9 @@ io.on('connection', (socket) => {
 
         for (const name of Object.keys(interfaces)) {
             for (const iface of interfaces[name]) {
-                // 跳过内部回环和非IPv4
                 if (!iface.internal && iface.family === 'IPv4') {
                     localIP = iface.address;
                     interfaceName = name;
-                    // 简单的 /24 网段计算
                     const parts = localIP.split('.');
                     parts.pop();
                     cidr = parts.join('.') + '.0/24';
@@ -851,12 +1159,10 @@ io.on('connection', (socket) => {
             cidr = localIP;
         }
 
-        // 2. 尝试获取网关 IP (通过 ip route 命令)
         const getGatewayProcess = spawn('ip', ['route', 'show', 'default']);
         let gatewayIP = null;
-        
+
         getGatewayProcess.stdout.on('data', (data) => {
-            // 输出示例: default via 192.168.1.1 dev eth0 proto dhcp ...
             const output = data.toString();
             const match = output.match(/default via ([0-9.]+)/);
             if (match) {
@@ -865,9 +1171,6 @@ io.on('connection', (socket) => {
         });
 
         getGatewayProcess.on('close', () => {
-            // 网关获取完成后，推送基础节点信息
-            
-            // 推送网关节点 (如果存在)
             if (gatewayIP) {
                 socket.emit('topology-node', {
                     id: gatewayIP,
@@ -877,41 +1180,31 @@ io.on('connection', (socket) => {
                 });
             }
 
-            // 推送本机节点
             socket.emit('topology-node', {
                 id: 'local',
                 label: `本机 (Attacker)\n${localIP}`,
                 group: 'attacker',
                 ip: localIP,
-                gateway: gatewayIP // 告诉前端谁是网关
+                gateway: gatewayIP
             });
 
-            // 3. 构建 Nmap 命令
-            // -sn: Ping Scan (默认)
-            // -Pn: Treat all hosts as online (主动探活)
-            // -O: Enable OS detection (系统识别, 需要 root)
-            // -oG: Grepable output
-            
             const nmapArgs = [];
             if (doLiveCheck) {
-                nmapArgs.push('-Pn'); // 跳过 Ping，强制扫描
+                nmapArgs.push('-Pn');
             } else {
-                nmapArgs.push('-sn'); // 默认 Ping 扫描
+                nmapArgs.push('-sn');
             }
 
             if (doOsDetect) {
-                nmapArgs.push('-O');           // 系统探测
-                nmapArgs.push('--osscan-guess'); // 猜测系统
+                nmapArgs.push('-O');
+                nmapArgs.push('--osscan-guess');
             }
 
-            nmapArgs.push('-oN'); // 使用标准输出方便解析 MAC/OS (Grepable 格式对 OS 支持不完整)
-            nmapArgs.push('-');   // 输出到 stdout
+            nmapArgs.push('-oN');
+            nmapArgs.push('-');
             nmapArgs.push(cidr);
 
-            // 如果选择了 OS 探测，通常需要 sudo，这里假设运行环境已有权限或通过 sudo
-            // 为了演示兼容性，如果不是 root 可能会失败，但在 docker/pi 环境通常是 root
             const nmap = spawn('nmap', nmapArgs);
-            
             let buffer = '';
 
             nmap.stdout.on('data', (data) => {
@@ -923,17 +1216,13 @@ io.on('connection', (socket) => {
             });
 
             nmap.on('close', () => {
-                // 解析标准 Nmap 输出
                 const blocks = buffer.split('Nmap scan report for');
                 blocks.forEach(block => {
-                    // 1. 优先尝试匹配括号里的 IP (针对有主机名的情况: "hostname (192.168.1.1)")
                     let ip = null;
                     const parensMatch = block.match(/\(([\d\.]+)\)/);
                     if (parensMatch) {
                         ip = parensMatch[1];
                     } else {
-                        // 2. 如果没有括号，匹配行首的 IP (针对无主机名的情况: "192.168.1.1")
-                        // split 之后 block 开头可能有空格
                         const rawMatch = block.match(/^ *([\d\.]+)/);
                         if (rawMatch) {
                             ip = rawMatch[1];
@@ -942,20 +1231,15 @@ io.on('connection', (socket) => {
 
                     if (ip) {
                         ip = ip.trim();
-                        // 简单校验 IP 格式
                         if (ip.split('.').length === 4) {
-                            // 排除本机
                             if (ip !== localIP && ip !== gatewayIP) {
-                                
-                                // 提取 MAC 和 厂商
                                 const macMatch = block.match(/MAC Address: ([A-F0-9:]+) \((.*)\)/i);
                                 const mac = macMatch ? macMatch[1] : 'Unknown';
                                 const vendor = macMatch ? macMatch[2] : '';
 
-                                // 提取 OS
                                 const osMatch = block.match(/Running: (.*)/);
                                 const osInfo = osMatch ? osMatch[1] : (doOsDetect ? 'Unknown' : '');
-                                
+
                                 let osGuess = '';
                                 if (!osInfo && doOsDetect) {
                                     const guessMatch = block.match(/OS details: (.*)/);
@@ -966,7 +1250,7 @@ io.on('connection', (socket) => {
 
                                 socket.emit('topology-node', {
                                     id: ip,
-                                    label: `设备\n${ip}`, // 修复 Label 显示
+                                    label: `设备\n${ip}`,
                                     group: 'target',
                                     ip: ip,
                                     mac: mac,
@@ -983,24 +1267,20 @@ io.on('connection', (socket) => {
         });
     });
 
-    // --- 新增: 单目标详细扫描 ---
+    // 单目标详细扫描
     socket.on('start-single-scan', (data) => {
         const { target, type } = data;
-        // type: 'port', 'service', 'alive'
 
         let args = [];
         let label = '';
 
         if (type === 'port') {
-            // 快速全端口
             args = ['-F', target];
             label = `快速端口扫描 (${target})`;
         } else if (type === 'service') {
-            // 服务探测
             args = ['-sV', '--version-intensity', '5', target];
             label = `服务版本探测 (${target})`;
         } else if (type === 'alive') {
-            // 强力探活 (ARP + TCP/ICMP)
             args = ['-sn', '-PE', '-PP', '-PM', target];
             label = `主动存活探测 (${target})`;
         } else {
@@ -1023,9 +1303,30 @@ io.on('connection', (socket) => {
             socket.emit('single-scan-log', `\n[SYSTEM] 任务结束 (Code: ${code})\n`);
         });
     });
+
+    // 断开连接
+    socket.on('disconnect', () => {
+        console.log('[-] 客户端断开:', socket.id);
+    });
 });
 
-const PORT = 3000;
-server.listen(PORT, () => {
-    console.log(`服务已启动: http://0.0.0.0:${PORT}`);
+// ==================== 启动服务器 ====================
+
+const PORT = useHTTPS ? HTTPS_PORT : HTTP_PORT;
+const PROTOCOL = useHTTPS ? 'https' : 'http';
+
+server.listen(PORT, '0.0.0.0', () => {
+    console.log('');
+    console.log('╔════════════════════════════════════════════╗');
+    console.log('║          TMbox Security Console            ║');
+    console.log('╠════════════════════════════════════════════╣');
+    console.log(`║  访问地址: ${PROTOCOL}://0.0.0.0:${PORT}              ║`);
+    console.log(`║  安全模式: ${useHTTPS ? 'HTTPS (TLS 加密)' : 'HTTP (未加密)'}        ║`);
+    console.log('╚════════════════════════════════════════════╝');
+    console.log('');
+
+    if (useHTTPS) {
+        console.log('提示: 首次访问可能需要信任自签名证书');
+        console.log(`      或在浏览器输入: thisisunsafe (Chrome)`);
+    }
 });

@@ -710,6 +710,27 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Webshell 管理卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden opacity-90 shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('webshell-body', 'webshell-icon')">
+                     <div class="flex items-center gap-2">
+                        <span id="webshell-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-pink-400 font-mono">Webshell 管理</h2>
+                    </div>
+                </div>
+                <div id="webshell-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="mt-4">
+                        <button onclick="window.location.href='/webshell'"
+                                class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-4 rounded transition text-sm shadow-lg flex items-center justify-center gap-2">
+                            <span>进入 Webshell 管理面板</span>
+                        </button>
+                        <p class="text-xs text-slate-500 mt-2 text-center">
+                            * 兼容冰蝎/蚁剑，支持 PHP 一句话、冰蝎 PHP/JSP，流量加密防重放
+                        </p>
+                    </div>
+                </div>
+            </div>
             
         </div>
         <!-- 右侧：日志终端 (多标签页) -->

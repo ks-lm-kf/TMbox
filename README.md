@@ -1,74 +1,99 @@
 TMbox - 树莓派攻防控制台
 ========================
 
-项目简介
+> ⚠️ **警告 / WARNING**
+>
+> **使用本工具务必遵守当地法律法规！**
+>
+> 本工具仅供**学习研究、安全测试和授权渗透测试**使用。
+>
+> **任何使用本工具的人无论做了什么事情，均与原作者无关。**
+>
+> 未经授权使用本工具进行攻击所产生的一切法律后果由使用者自行承担。
+>
+> This tool is for **educational and authorized security testing purposes only**.
+>
+> The author is **NOT responsible** for any misuse or illegal activities.
+
+> 🐛 **Bug 反馈**
+>
+> 本项目有很多 Bug 正待发现，如果你发现了，欢迎提交 Issue。
+>
+> **请勿攻击任何与项目有关的人或使用本项目的人。**
+
+---
+
+更新日志
 --------
-TMbox 是一个基于 Web 的实时监控仪表板，用于在树莓派/Linux 环境下监控系统状态并控制安全工具。
-它提供了统一的界面来运行漏洞扫描器、网络工具和 Metasploit Framework，并通过 WebSocket 实时流式输出。
+- 新增 Webshell 管理模块（支持 PHP 8.x / 7.x / 通用、ASP、ASPX、JSP）
+- 新增 60+ 种 Webshell 生成器（含免杀混淆）
+- 新增后端代理解决 CORS 跨域问题
+- 新增 TCP 代理（端口转发、SOCKS5、HTTP 代理）
+- 新增 Webshell 自动扫描功能
+- 新增反弹 Shell 生成
+- 修复系统信息显示
+- 修复文件管理器
 
 功能特性
 --------
-- 实时系统状态监控（CPU 负载、内存使用率）
-- Nuclei 漏洞扫描器集成
-- Nmap 端口扫描器集成
-- Fscan 内网综合扫描工具集成
-- Feroxbuster 目录爆破工具集成
-- Sqlmap SQL 注入检测工具集成
-- Metasploit Framework 专用控制台
+- 实时系统监控（CPU/内存）
+- Nuclei / Nmap / Fscan / Sqlmap 集成
+- Metasploit Framework 控制台
 - 网络拓扑可视化
-- 多标签页终端输出
-- 实时 WebSocket 通信
+- Webshell 管理（生成/连接/文件管理）
+- TCP 代理
 
 运行方法
 --------
-1. 安装依赖：
-   npm install
+```bash
+# 安装依赖
+npm install
 
-2. 启动服务器：
-   node server.js
+# 启动服务器
+node server.js
 
-3. 访问地址：
-   http://localhost:3000
-   或
-   http://<设备IP>:3000
+# 访问地址
+http://localhost:3000
+https://localhost:3443  # TLS 加密
+```
 
 页面路由
 --------
-/           - 主仪表板（所有扫描工具）
-/msf        - Metasploit 专用控制台
-/topology   - 网络拓扑可视化
+| 路由 | 功能 |
+|------|------|
+| `/` | 主仪表板 |
+| `/msf` | Metasploit 控制台 |
+| `/topology` | 网络拓扑 |
+| `/webshell` | Webshell 管理 |
 
 系统依赖
 --------
 需要安装以下工具并确保在 $PATH 中：
-- nuclei      - 漏洞扫描器
-- nmap        - 网络扫描器
-- fscan       - 端口扫描器
-- sqlmap      - SQL 注入工具
-- msfconsole  - Metasploit Framework
-- unbuffer    - 来自 expect 包，用于实时输出流
+- `nuclei` - 漏洞扫描器
+- `nmap` - 网络扫描器
+- `fscan` - 内网综合扫描
+- `sqlmap` - SQL 注入工具
+- `msfconsole` - Metasploit Framework
+- `unbuffer` - 来自 expect 包，用于实时输出
 
-安装 unbuffer（Debian/Ubuntu）：
+安装依赖（Debian/Ubuntu）：
+```bash
+# Node.js 依赖
+npm install
+
+# expect (提供 unbuffer)
 sudo apt install expect
 
-
-
+# 安全工具 (根据需要安装)
+sudo apt install nmap sqlmap
+# nuclei, fscan, msfconsole 需要单独安装
+```
 
 项目截图
 --------
 ![MSF功能展示](./images/screenshot.png)
 ![主界面截图](./images/907137fad01cc249b8ff2e261e5f7fb4.png)
 
-版权声明
+许可证
 --------
-本项目采用 GNU General Public License v3.0 (GPL v3) 协议开源。
-
-本程序是自由软件：您可以根据自由软件基金会发布的 GNU 通用公共许可证的条款
-（许可证的第3版或您选择的任何后续版本）重新分发和/或修改它。
-
-分发本程序是希望它有用，但没有任何保证；甚至没有对适销性或特定用途适用性的暗示保证。
-有关更多详细信息，请参阅 GNU 通用公共许可证。
-
-特别声明：本软件仅供学习研究、安全测试和授权渗透测试使用。
-          严禁用于任何商业用途。
-          未经授权使用本软件进行攻击所产生的一切后果由使用者自行承担。
+GNU General Public License v3.0 (GPL v3)

@@ -21,3 +21,7 @@ npm-debug.log*
 
 # Claude/Gemini
 .claude/
+
+# TLS 证书 (不要提交私钥)
+certs/*.pem
+certs/*.key
