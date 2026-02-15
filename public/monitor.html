@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMbox - 系统实时监控</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; }
+        .terminal-font { font-family: 'Consolas', 'Courier New', monospace; }
+        .neon-border { box-shadow: 0 0 10px #10b981; }
+        .gauge-ring {
+            stroke-dasharray: 283;
+            stroke-dashoffset: 283;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px currentColor; }
+            50% { box-shadow: 0 0 20px currentColor; }
+        }
+        .pulse-glow { animation: pulse-glow 2s infinite; }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4 overflow-hidden">
+
+    <!-- 顶部状态栏 -->
+    <header class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+        <div class="flex items-center gap-4">
+            <a href="/" class="text-2xl font-bold text-blue-500 tracking-widest hover:text-blue-400 transition">TM<span class="text-white">box</span></a>
+            <span class="text-slate-500">|</span>
+            <h2 class="text-lg text-emerald-400 font-mono">系统实时监控仪表板</h2>
+        </div>
+        <div class="flex space-x-3">
+            <div class="flex items-center space-x-2 px-3 py-1 bg-slate-800 rounded border border-slate-600">
+                <div id="connStatus" class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span id="connText" class="text-xs text-slate-300">已连接</span>
+            </div>
+            <a href="/" class="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs border border-slate-600 transition">
+                返回主页
+            </a>
+        </div>
+    </header>
+
+    <!-- 主要内容区域 -->
+    <div class="flex-1 grid grid-cols-4 gap-4 overflow-hidden">
+
+        <!-- 左侧：系统信息 -->
+        <div class="col-span-1 flex flex-col gap-4 overflow-y-auto">
+
+            <!-- CPU 使用率 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">CPU 负载</h3>
+                <div class="flex items-center justify-center">
+                    <div class="relative w-32 h-32">
+                        <svg class="w-32 h-32 transform -rotate-90">
+                            <circle cx="64" cy="64" r="56" stroke="#1e293b" stroke-width="8" fill="none"/>
+                            <circle id="cpuGauge" cx="64" cy="64" r="56" stroke="#10b981" stroke-width="8" fill="none"
+                                    class="gauge-ring" stroke-linecap="round"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="cpuValue" class="text-3xl font-bold text-emerald-400">0</span>
+                            <span class="text-xs text-slate-500">%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                    <div>
+                        <div class="text-slate-500">1分钟</div>
+                        <div id="load1" class="text-slate-300 font-mono">0.00</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-500">5分钟</div>
+                        <div id="load5" class="text-slate-300 font-mono">0.00</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-500">15分钟</div>
+                        <div id="load15" class="text-slate-300 font-mono">0.00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 内存使用率 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">内存使用</h3>
+                <div class="flex items-center justify-center">
+                    <div class="relative w-32 h-32">
+                        <svg class="w-32 h-32 transform -rotate-90">
+                            <circle cx="64" cy="64" r="56" stroke="#1e293b" stroke-width="8" fill="none"/>
+                            <circle id="memGauge" cx="64" cy="64" r="56" stroke="#3b82f6" stroke-width="8" fill="none"
+                                    class="gauge-ring" stroke-linecap="round"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="memValue" class="text-3xl font-bold text-blue-400">0</span>
+                            <span class="text-xs text-slate-500">%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3 text-center text-xs">
+                    <div class="flex justify-between text-slate-500 mb-1">
+                        <span>已用</span>
+                        <span>总计</span>
+                    </div>
+                    <div class="flex justify-between font-mono">
+                        <span id="memUsed" class="text-blue-400">0 GB</span>
+                        <span id="memTotal" class="text-slate-300">0 GB</span>
+                    </div>
+                    <div class="mt-2 h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div id="memBar" class="h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统信息 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">系统信息</h3>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">主机名</span>
+                        <span id="hostname" class="text-slate-300 font-mono">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">平台</span>
+                        <span id="platform" class="text-slate-300 font-mono">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">架构</span>
+                        <span id="arch" class="text-slate-300 font-mono">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">运行时间</span>
+                        <span id="uptime" class="text-emerald-400 font-mono">-</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-500">CPU 核心</span>
+                        <span id="cpuCores" class="text-slate-300 font-mono">-</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 中间：网络接口和进程 -->
+        <div class="col-span-2 flex flex-col gap-4 overflow-hidden">
+
+            <!-- 网络接口 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4 flex-1 overflow-hidden flex flex-col">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">网络接口</h3>
+                <div id="networkInterfaces" class="flex-1 overflow-y-auto space-y-3 terminal-font text-xs">
+                    <div class="text-slate-500 text-center py-4">正在获取网络信息...</div>
+                </div>
+            </div>
+
+            <!-- SSH 登录监测 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4 overflow-hidden flex flex-col border-l-4 border-l-purple-500">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-slate-400">SSH 登录监测</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500">当前连接:</span>
+                        <span id="sshCount" class="text-lg font-bold text-purple-400">0</span>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto space-y-2 terminal-font text-xs">
+                    <!-- SSH 状态概览 -->
+                    <div class="grid grid-cols-3 gap-2 mb-3">
+                        <div class="bg-slate-900 rounded p-2 text-center">
+                            <div class="text-slate-500 text-xs mb-1">活跃会话</div>
+                            <div id="sshActive" class="text-xl font-bold text-green-400">0</div>
+                        </div>
+                        <div class="bg-slate-900 rounded p-2 text-center">
+                            <div class="text-slate-500 text-xs mb-1">今日登录</div>
+                            <div id="sshToday" class="text-xl font-bold text-blue-400">0</div>
+                        </div>
+                        <div class="bg-slate-900 rounded p-2 text-center">
+                            <div class="text-slate-500 text-xs mb-1">失败尝试</div>
+                            <div id="sshFailed" class="text-xl font-bold text-red-400">0</div>
+                        </div>
+                    </div>
+                    <!-- 当前登录用户列表 -->
+                    <div class="mb-2 text-slate-500 font-bold">当前登录用户:</div>
+                    <div id="sshUsers" class="space-y-1 max-h-32 overflow-y-auto">
+                        <div class="text-slate-500 text-center py-2">正在获取 SSH 信息...</div>
+                    </div>
+                    <!-- 最近登录记录 -->
+                    <div class="mt-3 text-slate-500 font-bold">最近登录记录:</div>
+                    <div id="sshHistory" class="space-y-1 max-h-24 overflow-y-auto mt-1">
+                        <div class="text-slate-500">暂无记录</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统日志 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4 flex-1 overflow-hidden flex flex-col neon-border">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-slate-400">系统日志</h3>
+                    <button onclick="clearLog()" class="text-xs text-red-400 hover:text-red-300 transition">清空</button>
+                </div>
+                <div id="systemLog" class="flex-1 overflow-y-auto terminal-font text-xs space-y-1">
+                    <div class="text-emerald-400">[INFO] 系统监控已启动</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 右侧：快速操作 -->
+        <div class="col-span-1 flex flex-col gap-4 overflow-y-auto">
+
+            <!-- 快速状态 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">服务状态</h3>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between p-2 bg-slate-900 rounded">
+                        <span class="text-xs text-slate-400">Web 服务</span>
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-green-500 pulse-glow" style="color: #22c55e;"></div>
+                            <span class="text-xs text-green-400">运行中</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between p-2 bg-slate-900 rounded">
+                        <span class="text-xs text-slate-400">WebSocket</span>
+                        <div class="flex items-center gap-2">
+                            <div id="wsIndicator" class="w-2 h-2 rounded-full bg-green-500 pulse-glow" style="color: #22c55e;"></div>
+                            <span id="wsStatus" class="text-xs text-green-400">已连接</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between p-2 bg-slate-900 rounded">
+                        <span class="text-xs text-slate-400">端口 3000</span>
+                        <div class="flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-green-500 pulse-glow" style="color: #22c55e;"></div>
+                            <span class="text-xs text-green-400">监听中</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 磁盘使用 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">磁盘使用</h3>
+                <div id="diskUsage" class="space-y-3">
+                    <div class="text-slate-500 text-xs text-center py-2">正在获取磁盘信息...</div>
+                </div>
+            </div>
+
+            <!-- 快速链接 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">快速链接</h3>
+                <div class="space-y-2">
+                    <a href="/" class="block w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded transition text-center">
+                        主控制台
+                    </a>
+                    <a href="/msf" class="block w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 px-4 rounded transition text-center">
+                        Metasploit 控制台
+                    </a>
+                    <a href="/topology" class="block w-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2 px-4 rounded transition text-center">
+                        网络拓扑图
+                    </a>
+                </div>
+            </div>
+
+            <!-- 时间信息 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 p-4">
+                <h3 class="text-sm font-bold text-slate-400 mb-3">时间信息</h3>
+                <div class="text-center">
+                    <div id="currentTime" class="text-2xl font-bold text-emerald-400 font-mono">--:--:--</div>
+                    <div id="currentDate" class="text-xs text-slate-500 mt-1">----年--月--日</div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const socket = io({
+            transports: ['websocket'],
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000
+        });
+
+        // 更新时间
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false });
+            const dateStr = now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long' });
+            document.getElementById('currentTime').textContent = timeStr;
+            document.getElementById('currentDate').textContent = dateStr;
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // 更新仪表盘
+        function updateGauge(elementId, value, maxValue = 100) {
+            const gauge = document.getElementById(elementId);
+            const circumference = 2 * Math.PI * 56; // r=56
+            const offset = circumference - (value / maxValue) * circumference;
+            gauge.style.strokeDashoffset = offset;
+        }
+
+        // 格式化字节
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 格式化运行时间
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            if (days > 0) return `${days}天 ${hours}时${mins}分`;
+            if (hours > 0) return `${hours}时${mins}分`;
+            return `${mins}分钟`;
+        }
+
+        // 添加日志
+        function addLog(message, type = 'info') {
+            const logDiv = document.getElementById('systemLog');
+            const colors = {
+                'info': 'text-slate-400',
+                'success': 'text-emerald-400',
+                'warning': 'text-yellow-400',
+                'error': 'text-red-400'
+            };
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const entry = document.createElement('div');
+            entry.className = colors[type] || colors['info'];
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            // 保持最近100条
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.firstChild);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('systemLog').innerHTML = '<div class="text-emerald-400">[INFO] 日志已清空</div>';
+        }
+
+        // SSH 监测功能
+        function updateSSHInfo() {
+            fetch('/api/ssh-info')
+                .then(res => res.json())
+                .then(data => {
+                    // 更新计数
+                    document.getElementById('sshCount').textContent = data.activeCount || 0;
+                    document.getElementById('sshActive').textContent = data.activeCount || 0;
+                    document.getElementById('sshToday').textContent = data.todayLogins || 0;
+                    document.getElementById('sshFailed').textContent = data.failedAttempts || 0;
+
+                    // 更新当前登录用户列表
+                    const usersDiv = document.getElementById('sshUsers');
+                    if (data.currentUsers && data.currentUsers.length > 0) {
+                        usersDiv.innerHTML = data.currentUsers.map(user => `
+                            <div class="flex justify-between items-center p-2 bg-slate-900 rounded border-l-2 ${user.isLocal ? 'border-l-green-500' : 'border-l-yellow-500'}">
+                                <div>
+                                    <span class="text-green-400 font-bold">${user.user}</span>
+                                    <span class="text-slate-500 ml-2">${user.tty}</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-cyan-400">${user.ip || '本地'}</div>
+                                    <div class="text-slate-500 text-xs">${user.time || '-'}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                    } else {
+                        usersDiv.innerHTML = '<div class="text-slate-500 text-center py-2">暂无 SSH 连接</div>';
+                    }
+
+                    // 更新最近登录记录
+                    const historyDiv = document.getElementById('sshHistory');
+                    if (data.recentLogins && data.recentLogins.length > 0) {
+                        historyDiv.innerHTML = data.recentLogins.map(login => `
+                            <div class="flex justify-between items-center text-xs py-1 border-b border-slate-700/50">
+                                <span class="${login.status === 'success' ? 'text-green-400' : 'text-red-400'}">${login.user}</span>
+                                <span class="text-slate-400">${login.ip}</span>
+                                <span class="text-slate-500">${login.time}</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        historyDiv.innerHTML = '<div class="text-slate-500">暂无登录记录</div>';
+                    }
+                })
+                .catch(err => {
+                    console.error('获取 SSH 信息失败:', err);
+                });
+        }
+
+        // 每5秒更新一次 SSH 信息
+        setInterval(updateSSHInfo, 5000);
+        updateSSHInfo(); // 立即执行一次
+
+        // 连接状态
+        socket.on('connect', () => {
+            document.getElementById('connStatus').className = 'w-2 h-2 rounded-full bg-green-500 animate-pulse';
+            document.getElementById('connText').textContent = '已连接';
+            document.getElementById('wsIndicator').className = 'w-2 h-2 rounded-full bg-green-500 pulse-glow';
+            document.getElementById('wsIndicator').style.color = '#22c55e';
+            document.getElementById('wsStatus').textContent = '已连接';
+            document.getElementById('wsStatus').className = 'text-xs text-green-400';
+            addLog('WebSocket 连接成功', 'success');
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('connStatus').className = 'w-2 h-2 rounded-full bg-red-500';
+            document.getElementById('connText').textContent = '已断开';
+            document.getElementById('wsIndicator').className = 'w-2 h-2 rounded-full bg-red-500';
+            document.getElementById('wsIndicator').style.color = '#ef4444';
+            document.getElementById('wsStatus').textContent = '已断开';
+            document.getElementById('wsStatus').className = 'text-xs text-red-400';
+            addLog('WebSocket 连接断开', 'error');
+        });
+
+        // 系统状态更新
+        socket.on('sys-update', (data) => {
+            // CPU
+            const load = parseFloat(data.load);
+            const cpuPercent = Math.min(load * 25, 100); // 假设4核，负载4 = 100%
+            document.getElementById('cpuValue').textContent = Math.round(cpuPercent);
+            updateGauge('cpuGauge', cpuPercent);
+
+            // 设置 CPU 颜色
+            const cpuGauge = document.getElementById('cpuGauge');
+            if (cpuPercent > 80) {
+                cpuGauge.setAttribute('stroke', '#ef4444');
+                document.getElementById('cpuValue').className = 'text-3xl font-bold text-red-400';
+            } else if (cpuPercent > 60) {
+                cpuGauge.setAttribute('stroke', '#f59e0b');
+                document.getElementById('cpuValue').className = 'text-3xl font-bold text-yellow-400';
+            } else {
+                cpuGauge.setAttribute('stroke', '#10b981');
+                document.getElementById('cpuValue').className = 'text-3xl font-bold text-emerald-400';
+            }
+
+            // 内存
+            const mem = parseFloat(data.mem);
+            document.getElementById('memValue').textContent = Math.round(mem);
+            updateGauge('memGauge', mem);
+            document.getElementById('memBar').style.width = mem + '%';
+
+            // 设置内存颜色
+            const memGauge = document.getElementById('memGauge');
+            if (mem > 80) {
+                memGauge.setAttribute('stroke', '#ef4444');
+                document.getElementById('memValue').className = 'text-3xl font-bold text-red-400';
+            } else if (mem > 60) {
+                memGauge.setAttribute('stroke', '#f59e0b');
+                document.getElementById('memValue').className = 'text-3xl font-bold text-yellow-400';
+            } else {
+                memGauge.setAttribute('stroke', '#3b82f6');
+                document.getElementById('memValue').className = 'text-3xl font-bold text-blue-400';
+            }
+
+            // 负载详情
+            if (data.loads) {
+                document.getElementById('load1').textContent = data.loads[0].toFixed(2);
+                document.getElementById('load5').textContent = data.loads[1].toFixed(2);
+                document.getElementById('load15').textContent = data.loads[2].toFixed(2);
+            }
+        });
+
+        // 初始系统信息
+        fetch('/api/system-info')
+            .then(res => res.json())
+            .then(data => {
+                if (data.hostname) document.getElementById('hostname').textContent = data.hostname;
+                if (data.platform) document.getElementById('platform').textContent = data.platform;
+                if (data.arch) document.getElementById('arch').textContent = data.arch;
+                if (data.uptime) document.getElementById('uptime').textContent = formatUptime(data.uptime);
+                if (data.cpus) document.getElementById('cpuCores').textContent = data.cpus + ' 核';
+
+                // 内存详情
+                if (data.totalMem) {
+                    document.getElementById('memTotal').textContent = formatBytes(data.totalMem);
+                    const usedMem = data.totalMem - (data.freeMem || 0);
+                    document.getElementById('memUsed').textContent = formatBytes(usedMem);
+                }
+
+                // 网络接口
+                if (data.networkInterfaces) {
+                    const netDiv = document.getElementById('networkInterfaces');
+                    netDiv.innerHTML = '';
+                    for (const [name, ifaces] of Object.entries(data.networkInterfaces)) {
+                        ifaces.forEach(iface => {
+                            if (iface.family === 'IPv4' && !iface.internal) {
+                                const card = document.createElement('div');
+                                card.className = 'p-2 bg-slate-900 rounded border border-slate-700';
+                                card.innerHTML = `
+                                    <div class="flex justify-between items-center mb-1">
+                                        <span class="text-cyan-400 font-bold">${name}</span>
+                                        <span class="text-slate-500 text-xs">${iface.mac}</span>
+                                    </div>
+                                    <div class="text-slate-300">${iface.address}</div>
+                                    <div class="text-slate-500 text-xs">CIDR: ${iface.cidr}</div>
+                                `;
+                                netDiv.appendChild(card);
+                            }
+                        });
+                    }
+                    if (netDiv.children.length === 0) {
+                        netDiv.innerHTML = '<div class="text-slate-500 text-center py-4">未检测到外部网络接口</div>';
+                    }
+                }
+
+                // 磁盘使用
+                if (data.diskUsage) {
+                    const diskDiv = document.getElementById('diskUsage');
+                    diskDiv.innerHTML = '';
+                    data.diskUsage.forEach(disk => {
+                        const usedPercent = disk.percent.replace('%', '');
+                        let barColor = 'bg-emerald-500';
+                        if (usedPercent > 80) barColor = 'bg-red-500';
+                        else if (usedPercent > 60) barColor = 'bg-yellow-500';
+
+                        const card = document.createElement('div');
+                        card.className = 'space-y-1';
+                        card.innerHTML = `
+                            <div class="flex justify-between text-xs">
+                                <span class="text-slate-400">${disk.mounted}</span>
+                                <span class="text-slate-300">${disk.percent}</span>
+                            </div>
+                            <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                <div class="h-full ${barColor} transition-all duration-500" style="width: ${disk.percent}"></div>
+                            </div>
+                            <div class="flex justify-between text-xs text-slate-500">
+                                <span>已用: ${disk.used}</span>
+                                <span>可用: ${disk.avail}</span>
+                            </div>
+                        `;
+                        diskDiv.appendChild(card);
+                    });
+                }
+
+                addLog('系统信息加载完成', 'success');
+            })
+            .catch(err => {
+                addLog('获取系统信息失败: ' + err.message, 'error');
+            });
+
+        // 定期更新运行时间
+        setInterval(() => {
+            fetch('/api/system-info')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.uptime) {
+                        document.getElementById('uptime').textContent = formatUptime(data.uptime);
+                    }
+                });
+        }, 60000); // 每分钟更新
+    </script>
+</body>
+</html>

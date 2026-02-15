@@ -51,16 +51,8 @@ TMbox 是一个基于 Web 的实时监控仪表板，用于在树莓派/Linux �
 安装 unbuffer（Debian/Ubuntu）：
 sudo apt install expect
 
-技术栈
-------
-- Node.js + Express
-- Socket.IO（实时通信）
-- Tailwind CSS（前端样式）
 
-注意事项
---------
-- package.json 中指定 main: "index.js"，但实际入口文件是 server.js
-- 未配置测试，npm test 命令会报错退出
+
 
 项目截图
 --------

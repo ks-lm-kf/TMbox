@@ -24,6 +24,11 @@ app.get('/topology', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/topology.html'));
 });
 
+// --- 新增路由: 系统实时监控 ---
+app.get('/monitor', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/monitor.html'));
+});
+
 // --- Payload 文件管理 API ---
 const PAYLOAD_DIR = '/tmp';
 
@@ -137,6 +142,162 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// --- 系统信息 API ---
+app.get('/api/system-info', (req, res) => {
+    try {
+        // 获取磁盘使用情况
+        const { execSync } = require('child_process');
+        let diskUsage = [];
+        try {
+            const dfOutput = execSync('df -h | tail -n +2', { encoding: 'utf8' });
+            const lines = dfOutput.trim().split('\n');
+            diskUsage = lines.map(line => {
+                const parts = line.split(/\s+/);
+                return {
+                    filesystem: parts[0],
+                    size: parts[1],
+                    used: parts[2],
+                    avail: parts[3],
+                    percent: parts[4],
+                    mounted: parts[5] || parts[4]
+                };
+            }).filter(d => d.mounted && d.mounted.startsWith('/'));
+        } catch (e) {
+            console.error('获取磁盘信息失败:', e.message);
+        }
+
+        res.json({
+            hostname: os.hostname(),
+            platform: os.platform(),
+            arch: os.arch(),
+            uptime: os.uptime(),
+            cpus: os.cpus().length,
+            totalMem: os.totalmem(),
+            freeMem: os.freemem(),
+            networkInterfaces: os.networkInterfaces(),
+            diskUsage: diskUsage
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- SSH 登录信息 API ---
+app.get('/api/ssh-info', (req, res) => {
+    try {
+        const { execSync } = require('child_process');
+
+        // 1. 获取当前登录用户 (使用 who 命令)
+        let currentUsers = [];
+        try {
+            const whoOutput = execSync('who 2>/dev/null || echo ""', { encoding: 'utf8', timeout: 5000 });
+            const lines = whoOutput.trim().split('\n').filter(l => l.trim());
+            currentUsers = lines.map(line => {
+                // 格式: user    tty     2024-01-01 12:00 (192.168.1.1)
+                const parts = line.split(/\s+/);
+                const user = parts[0] || '';
+                const tty = parts[1] || '';
+                // 提取 IP 地址 (括号内)
+                const ipMatch = line.match(/\(([^)]+)\)/);
+                const ip = ipMatch ? ipMatch[1] : null;
+                // 判断是否为本地登录
+                const isLocal = !ip || ip.startsWith(':') || ip === 'tty' || ip.startsWith('tty');
+
+                // 提取时间
+                const timeMatch = line.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/);
+                const time = timeMatch ? timeMatch[1] : '';
+
+                return { user, tty, ip: isLocal ? null : ip, isLocal, time };
+            });
+        } catch (e) {
+            console.error('who 命令执行失败:', e.message);
+        }
+
+        // 2. 获取今日 SSH 登录次数
+        let todayLogins = 0;
+        try {
+            const today = new Date().toISOString().slice(0, 10);
+            // 使用 last 命令获取今天的登录记录
+            const lastOutput = execSync(`last -n 50 2>/dev/null | grep -E "^\\w" | head -30 || echo ""`, {
+                encoding: 'utf8',
+                timeout: 5000
+            });
+            const lines = lastOutput.trim().split('\n').filter(l => l.trim() && !l.startsWith('wtmp'));
+
+            // 统计今天的登录次数
+            todayLogins = lines.filter(line => {
+                // last 输出的日期格式: Jan 15 12:00 或 Mon Jan 15 12:00
+                return line.includes(today.slice(5)) || line.includes(new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit' }));
+            }).length;
+        } catch (e) {
+            console.error('last 命令执行失败:', e.message);
+        }
+
+        // 3. 获取最近登录记录
+        let recentLogins = [];
+        try {
+            const lastOutput = execSync('last -n 10 2>/dev/null | grep -E "^\\w" | head -10 || echo ""', {
+                encoding: 'utf8',
+                timeout: 5000
+            });
+            const lines = lastOutput.trim().split('\n').filter(l => l.trim() && !l.startsWith('wtmp'));
+
+            recentLogins = lines.slice(0, 8).map(line => {
+                const parts = line.split(/\s+/);
+                const user = parts[0] || '';
+                // IP 可能在不同位置，尝试提取
+                const ipMatch = line.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+                const ip = ipMatch ? ipMatch[1] : (parts[2] || '本地');
+
+                // 检查是否仍在登录
+                const status = line.includes('still logged in') ? 'active' : 'success';
+                // 检查是否是失败登录
+                const isFailed = line.includes('gone') && !line.includes('still');
+
+                // 提取时间信息
+                const timeInfo = parts.slice(3, 7).join(' ');
+
+                return {
+                    user,
+                    ip: ip.startsWith('tty') || ip.startsWith('pts') || ip.startsWith(':') ? '本地' : ip,
+                    time: timeInfo,
+                    status: isFailed ? 'failed' : status
+                };
+            });
+        } catch (e) {
+            console.error('获取最近登录记录失败:', e.message);
+        }
+
+        // 4. 获取失败登录尝试次数 (从 auth.log)
+        let failedAttempts = 0;
+        try {
+            // 尝试读取今天的失败登录次数
+            const failedOutput = execSync(
+                'grep -c "Failed password\\|authentication failure\\|Invalid user" /var/log/auth.log 2>/dev/null || ' +
+                'journalctl -u ssh --since today 2>/dev/null | grep -c "Failed\\|Invalid" || echo 0',
+                { encoding: 'utf8', timeout: 5000 }
+            );
+            failedAttempts = parseInt(failedOutput.trim()) || 0;
+        } catch (e) {
+            // 忽略权限错误
+        }
+
+        // 5. 统计活跃 SSH 连接数 (排除本地登录)
+        const activeSSH = currentUsers.filter(u => !u.isLocal).length;
+
+        res.json({
+            activeCount: currentUsers.length,
+            sshActive: activeSSH,
+            todayLogins,
+            failedAttempts,
+            currentUsers,
+            recentLogins
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 多任务管理字典
 const activeScans = {
     'system': null, // Ping
@@ -158,8 +319,8 @@ setInterval(() => {
     const total = os.totalmem();
     const free = os.freemem();
     const mem = ((total - free) / total * 100).toFixed(1);
-    
-    io.emit('sys-update', { load: usage, mem: mem });
+
+    io.emit('sys-update', { load: usage, mem: mem, loads: loads.map(l => l.toFixed(2)) });
 }, 2000);
 
 io.on('connection', (socket) => {

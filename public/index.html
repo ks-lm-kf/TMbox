@@ -679,12 +679,33 @@
                 </div>
                 <div id="msf-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
                     <div class="mt-4">
-                        <button onclick="window.location.href='/msf'" 
+                        <button onclick="window.location.href='/msf'"
                                 class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded transition text-sm shadow-lg flex items-center justify-center gap-2">
                             <span>进入 MSF 完整控制台 (Enter MSF Console)</span>
                         </button>
                         <p class="text-xs text-slate-500 mt-2 text-center">
                             * 点击将打开新的全屏终端页面，支持交互式操作
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 实时监控仪表板卡片 -->
+            <div class="bg-slate-800 rounded-lg shadow-lg border border-slate-700 overflow-hidden opacity-90 shrink-0">
+                <div class="p-4 bg-slate-800 hover:bg-slate-700 cursor-pointer flex justify-between items-center transition" onclick="toggleCard('monitor-body', 'monitor-icon')">
+                     <div class="flex items-center gap-2">
+                        <span id="monitor-icon" class="text-slate-400 transition-transform duration-200 -rotate-90">▼</span>
+                        <h2 class="text-lg font-bold text-emerald-400 font-mono">系统实时监控 (Monitor)</h2>
+                    </div>
+                </div>
+                <div id="monitor-body" class="hidden p-5 pt-0 border-t border-slate-700/50">
+                    <div class="mt-4">
+                        <button onclick="window.location.href='/monitor'"
+                                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded transition text-sm shadow-lg flex items-center justify-center gap-2">
+                            <span>进入实时监控仪表板 (Open Dashboard)</span>
+                        </button>
+                        <p class="text-xs text-slate-500 mt-2 text-center">
+                            * 基于 Web 的实时监控仪表板，展示系统资源、网络状态等信息
                         </p>
                     </div>
                 </div>
@@ -1022,7 +1043,13 @@
         }
 
         function stopNuclei() {
-            stopTask('nuclei');
+            // 修复：同时停止 'system' (Ping) 和 'nuclei' 任务
+            if (runningStatus['system']) {
+                stopTask('system');
+            }
+            if (runningStatus['nuclei']) {
+                stopTask('nuclei');
+            }
         }
 
         // --- 通用折叠卡片逻辑 ---
